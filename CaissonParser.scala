@@ -27,7 +27,7 @@ class ParseCaisson extends JavaTokenParsers {
     
     def dataStructure: Parser[Any] = dataType~opt(dataSize)
     
-    def dataType: Parser[Any] = "input" | "output" | "reg" | "inout"
+    def dataType: Parser[String] = "input" | "output" | "reg" | "inout"
     
     def dataSize: Parser[Any] = "["~wholeNumber~":"~wholeNumber~"]"
     
