@@ -15,6 +15,11 @@ case class Jump(target: String, argList: List[String]) extends Statement
 case class Fall() extends Statement
 case class Skip() extends Statement
 
+sealed abstract class Definition
+case class LetDefinition(stateDefList: , inCommand: Command)  extends Definition
+case class Command(stmtList: List[Statement]) extends Definition
+
+class StateDefinition(name: String, secLevel: String, paramMap: Map[String,String], constraintList: List[Tuple2[String,String]], definition: Definition)
 
 class ParseCaisson extends JavaTokenParsers {
     def prog: Parser[Any] = "prog"~ident~"("~repsep(ident, ",")~")"~"="~declarations~"in"~definition
@@ -33,12 +38,12 @@ class ParseCaisson extends JavaTokenParsers {
     
     def definition: Parser[Any] = "let"~rep1(stateDefinition)~"in"~command | command
     
-    def stateDefinition: Parser[Any] = "state"~pair~"("~varTypedList~")"~opt(constraintList)~    
-                                       "="~"{"~definition~"}"
+    def stateDefinition: Parser[Any] = "state"~>pair~"("~varTypedList~")"~opt(constraintList)~    
+                                       "="~"{"~definition<~"}" ^^ 
 
     def varTypedList: Parser[Any] = repsep(ident~opt(":"~ident),",")
     
-    def constraintList: Parser[Any] = "["~repsep(ident~"<"~ident,",")~"]"
+    def constraintList: Parser[Any] = "["~>repsep(ident~"<"~ident,",")<~"]" 
     
     def command: Parser[List[Statement]] = rep1(statement<~";" | branch) 
     
