@@ -1,8 +1,6 @@
 import scala.util.parsing.combinator._
 import java.io.FileReader
 
-//fix Parser[Any] to specific types
-
 sealed abstract class Expr 
 case class Number(value: Float) extends Expr 
 case class Variable(name: String) extends Expr
@@ -16,34 +14,49 @@ case class Fall() extends Statement
 case class Skip() extends Statement
 
 sealed abstract class Definition
-case class LetDefinition(stateDefList: , inCommand: Command)  extends Definition
+case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  extends Definition
 case class Command(stmtList: List[Statement]) extends Definition
 
-class StateDefinition(name: String, secLevel: String, paramMap: Map[String,String], constraintList: List[Tuple2[String,String]], definition: Definition)
+class StateDefinition(name: String, secLevel: String, paramMap: Map[String,String], constraintList: Option[List[Tuple2[String,String]]], definition: Definition)
+
+sealed abstract class DataType
+case class Input() extends DataType
+case class Output() extends DataType
+case class Register() extends DataType
+case class Inout() extends DataType
+
+class DataStructure(dType: DataType, dimension: Option[Tuple2[Int, Int]])
+
+class DataDeclaration(dStructure: DataStructure, name: String, level: String)
+
+class Program(name: String, params: List[String], decl: List[DataDeclaration], defn: Definition)
 
 class ParseCaisson extends JavaTokenParsers {
-    def prog: Parser[Any] = "prog"~ident~"("~repsep(ident, ",")~")"~"="~declarations~"in"~definition
+    def prog: Parser[Program] = "prog"~>ident~"("~repsep(ident, ",")~")"~"="~declarations~"in"~definition ^^ {case name~"("~params~")"~"="~decl~"in"~defn => 
+                                                                                                               Program(name, params, decl, defn)}
     
-    def declarations: Parser[Any] = rep1(dataDeclaration~";")
+    def declarations: Parser[List[DataDeclaration]] = rep1(dataDeclaration<~";") ^^ ((lst: List[List[DataDeclaration]]) => 
+                                                                                       lst.reduceLeft((a: List[DataDeclaration], b: List[DataDeclaration]) => a ++ b))
     
-    def dataDeclaration: Parser[Any] = dataStructure~rep1sep(pair, ",")
+    def dataDeclaration: Parser[List[DataDeclaration]] = dataStructure~rep1sep(pair, ",") ^^ { case ds~lst => lst.map((x => DataDeclaration(ds, x._1, x._2))) }
     
-    def pair: Parser[Any] = ident~":"~ident 
+    def pair: Parser[Tuple2[String, String]] = ident~":"~ident ^^ { case a~":"~b => (a, b) }
     
-    def dataStructure: Parser[Any] = dataType~opt(dataSize)
+    def dataStructure: Parser[DataStructure] = dataType~opt(dataSize) ^^ { case dt~ds => DataStructure(dt, ds) }
     
-    def dataType: Parser[String] = "input" | "output" | "reg" | "inout"
+    def dataType: Parser[DataType] = "input" ^^ (_ => Input()) | "output" ^^ (_ => Output()) | "reg" ^^ (_ => Register()) | "inout" ^^ (_ => Inout())
     
-    def dataSize: Parser[Any] = "["~wholeNumber~":"~wholeNumber~"]"
+    def dataSize: Parser[Tuple2[Int, Int]] = "["~>wholeNumber~":"~wholeNumber<~"]" ^^ { case a~":"~b => (a,b) }
     
-    def definition: Parser[Any] = "let"~rep1(stateDefinition)~"in"~command | command
+    def definition: Parser[Definition] = ("let"~>rep1(stateDefinition)~"in"~command ^^ { case sdList~"in"~cmd => LetDefinition(sdList, cmd) }
+                                  | command ^^ (Command) )
     
-    def stateDefinition: Parser[Any] = "state"~>pair~"("~varTypedList~")"~opt(constraintList)~    
-                                       "="~"{"~definition<~"}" ^^ 
+    def stateDefinition: Parser[StateDefinition] = "state"~>pair~"("~varTypedList~")"~opt(constraintList)~    
+                                       "="~"{"~definition<~"}" ^^ { case p~"("~vmap~")"~clist~"="~"{"~defs => StateDefinition(p._1, p._2, vmap, clist, defs) }
 
-    def varTypedList: Parser[Any] = repsep(ident~opt(":"~ident),",")
+    def varTypedList: Parser[Map[String, String]] = repsep(ident~":"~ident,",") ^^ (lst => lst.foldLeft(Map[String, String]())((m, e) => e match {case a~":"~b => m + (a -> b)}))
     
-    def constraintList: Parser[Any] = "["~>repsep(ident~"<"~ident,",")<~"]" 
+    def constraintList: Parser[List[Tuple2[String,String]]] = "["~>repsep(ident~"<"~ident,",")<~"]" ^^ (lst => lst.map((x => x match { case a~"<"~b => (a,b) })))
     
     def command: Parser[List[Statement]] = rep1(statement<~";" | branch) 
     
@@ -66,8 +79,9 @@ class ParseCaisson extends JavaTokenParsers {
                                 
     def condOp: Parser[String] = "==" | "<"
                                         
-    def branch: Parser[Branch] = "if"~>expr~"then"~"{"~command~"}"~opt("else"~"{"~command~"}") ^^ { case cond~"then"~"{"~tbody~"}"~Some("else"~"{"~ebody~"}") => Branch(cond, tbody, Some(ebody))
-                                                                                                 case cond~"then"~"{"~tbody~"}"~None => Branch(cond, tbody, None) }
+    def branch: Parser[Branch] = "if"~>expr~"then"~"{"~command~"}"~opt("else"~"{"~command~"}") ^^ { case cond~"then"~"{"~tbody~"}"~Some("else"~"{"~ebody~"}") => 
+                                                                                                                                        Branch(cond, tbody, Some(ebody))
+                                                                                                    case cond~"then"~"{"~tbody~"}"~None => Branch(cond, tbody, None) }
     
     def jump: Parser[Jump] =  "goto"~>ident~"("~repsep(ident, ",")<~")" ^^ { case target~"("~varList => Jump(target, varList) }
                   
