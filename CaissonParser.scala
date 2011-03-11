@@ -17,7 +17,7 @@ sealed abstract class Definition
 case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  extends Definition
 case class Command(stmtList: List[Statement]) extends Definition
 
-class StateDefinition(name: String, secLevel: String, paramMap: Map[String,String], constraintList: Option[List[Tuple2[String,String]]], definition: Definition)
+class StateDefinition(name: String, secLevel: String, paramAndTypeList: List[Tuple2[String, String]], constraintList: Option[List[Tuple2[String,String]]], definition: Definition)
 
 sealed abstract class DataType
 case class Input() extends DataType
@@ -54,7 +54,8 @@ class ParseCaisson extends JavaTokenParsers {
     def stateDefinition: Parser[StateDefinition] = "state"~>pair~"("~varTypedList~")"~opt(constraintList)~    
                                        "="~"{"~definition<~"}" ^^ { case p~"("~vmap~")"~clist~"="~"{"~defs => new StateDefinition(p._1, p._2, vmap, clist, defs) }
 
-    def varTypedList: Parser[Map[String, String]] = repsep(ident~":"~ident,",") ^^ (lst => lst.foldLeft(Map[String, String]())((m, e) => e match {case a~":"~b => m + (a -> b)}))
+    // :\ stands for foldRight
+    def varTypedList: Parser[List[Tuple2[String, String]]] = repsep(ident~":"~ident,",") ^^ (lst => (lst :\ List[Tuple2[String, String]]())((e, l) => e match {case a~":"~b => (a,b) :: l}))
     
     def constraintList: Parser[List[Tuple2[String,String]]] = "["~>repsep(ident~"<"~ident,",")<~"]" ^^ (lst => lst.map((x => x match { case a~"<"~b => (a,b) })))
     
