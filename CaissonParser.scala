@@ -10,7 +10,7 @@ sealed abstract class Statement
 case class Assignment(lvalue: String, rvalue: Expr) extends Statement
 case class Branch(cond: Expr, thenBody: Command, elseBody: Option[Command]) extends Statement
 case class Jump(target: String, argList: List[String]) extends Statement
-case class Fall() extends Statement
+case class Fall(level: Option[String]) extends Statement
 case class Skip() extends Statement
 
 sealed abstract class Definition
@@ -61,7 +61,7 @@ class ParseCaisson extends JavaTokenParsers {
     
     def command: Parser[Command] = rep1(statement<~";" | branch) ^^ (Command)
     
-    def statement: Parser[Statement] = assignment | branch | jump | "fall" ^^ (_ => Fall()) | "skip" ^^ (_ => Skip())
+    def statement: Parser[Statement] = assignment | branch | jump | "fall" ^^ (_ => Fall(None)) | "skip" ^^ (_ => Skip())
     
     def assignment: Parser[Assignment] = ident~":="~expr ^^ { case lv~":="~rv => Assignment(lv, rv) }
 
