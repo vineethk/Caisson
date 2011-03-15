@@ -1,35 +1,4 @@
 import scala.util.parsing.combinator._
-import java.io.FileReader
-
-sealed abstract class Expr 
-case class Number(value: Float) extends Expr 
-case class Variable(name: String) extends Expr
-case class ComplexExpr(left: Expr, right: Expr, op: String) extends Expr
-
-sealed abstract class Statement
-case class Assignment(lvalue: String, rvalue: Expr) extends Statement
-case class Branch(cond: Expr, thenBody: Command, elseBody: Option[Command]) extends Statement
-case class Jump(target: String, argList: List[String]) extends Statement
-case class Fall(level: Option[String]) extends Statement
-case class Skip() extends Statement
-
-sealed abstract class Definition
-case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  extends Definition
-case class Command(stmtList: List[Statement]) extends Definition
-
-class StateDefinition(name: String, secLevel: String, paramAndTypeList: List[Tuple2[String, String]], constraintList: Option[List[Tuple2[String,String]]], definition: Definition)
-
-sealed abstract class DataType
-case class Input() extends DataType
-case class Output() extends DataType
-case class Register() extends DataType
-case class Inout() extends DataType
-
-class DataStructure(dType: DataType, dimension: Option[Tuple2[Int, Int]])
-
-class DataDeclaration(dStructure: DataStructure, name: String, level: String)
-
-class Program(name: String, params: List[String], decl: List[DataDeclaration], defn: Definition)
 
 class CaissonParser extends JavaTokenParsers {
     def prog: Parser[Program] = "prog"~>ident~"("~repsep(ident, ",")~")"~"="~declarations~"in"~definition ^^ {case name~"("~params~")"~"="~decl~"in"~defn => 
@@ -86,12 +55,4 @@ class CaissonParser extends JavaTokenParsers {
     
     def jump: Parser[Jump] =  "goto"~>ident~"("~repsep(ident, ",")<~")" ^^ { case target~"("~varList => Jump(target, varList) }
                   
-}
-
-object CaissonCompiler {
-    def main(args: Array[String]) {
-        val reader = new FileReader(args(0))
-        val parser = new CaissonParser()
-        println(parser.parseAll(parser.prog, reader))
- }
 }
