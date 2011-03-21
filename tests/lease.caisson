@@ -1,0 +1,41 @@
+prog lease(timer,data1,data2) = 
+
+input[7:0]	timer:L;
+input data1:H, data2:L;
+reg 	mode:L;
+
+in
+let	state master:L() = {
+if mode == 0 then {
+				mode := 1;
+				goto group(data1);
+			} else {
+				mode := 0;
+				goto group(data2);
+			}
+		}
+		state group:L(data:A)[L<A] = {
+			let	state S1:A() = {
+						if data == 0 then {
+							goto S2();
+						} else {
+							goto S1();
+						}
+					}
+					state S2:A() = {
+						if data == 0 then {
+							goto S1();
+						} else {
+							goto S2();
+						}
+					}
+			in
+				timer := timer - 1;
+				if timer == 0 then {
+					goto master();
+				} else {
+					fall;
+				}
+		}
+in
+	fall;
