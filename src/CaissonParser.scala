@@ -56,3 +56,8 @@ class CaissonParser extends JavaTokenParsers {
     def jump: Parser[Jump] =  "goto"~>ident~"("~repsep(ident, ",")<~")" ^^ { case target~"("~varList => Jump(target, varList) }
                   
 }
+
+class CaissonParseException(msg: String) extends Exception {
+  def message: String = msg
+}
+
