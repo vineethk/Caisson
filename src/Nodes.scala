@@ -14,7 +14,7 @@ case class Variable(name: String) extends Expr {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): SimpleType = { //implements rule T-REG/VAR
     assert(env.typeMap(name).isInstanceOf[SimpleType])
     env.typeMap(name).asInstanceOf[SimpleType]
-  }  
+  }
 }
 
 case class ComplexExpr(left: Expr, right: Expr, op: String) extends Expr {
@@ -65,7 +65,7 @@ case class Jump(target: String, argList: List[String]) extends Statement {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType = { //implements T-GOTO
     assert(env.typeMap(target).isInstanceOf[StateType])
     val targetStateType = env.typeMap(target).asInstanceOf[StateType]
-    assert(targetStateType.paramTypeList.length == argList.length)
+    if (targetStateType.paramTypeList.length != argList.length) throw new InvalidProgramException("Mismatch in arguments and parameters in goto "+target)
     val typeSubstitutionMap = List.range(0, argList.length).foldLeft(Map[String, SimpleType]())((m, i) => m ++ Map(targetStateType.paramTypeList(i).level -> env.typeMap(argList(i)).asInstanceOf[SimpleType]))
     val sourceType = Util.substituteType(targetStateType.level, typeSubstitutionMap)
     val substitutedConstraints = Util.substituteConstraints(targetStateType.constraints, typeSubstitutionMap)
@@ -100,7 +100,8 @@ case class Skip() extends Statement {
 sealed abstract class Definition extends CaissonASTNode {
   def computeEnvironment(state: String): Environment
   def fallTransform(state: String): Definition
-  def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType  
+  def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType
+  def validateAndGetNames: Set[String]
 }
 
 case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  extends Definition {
@@ -120,16 +121,25 @@ case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  ext
 
   private def discard(x: Any) {}
 
+  def validateAndGetNames: Set[String] = {
+    stateDefList.foldLeft(Set[String]())((s: Set[String], e: StateDefinition) => {
+      val eNames = e.validateAndGetNames
+      if ((s ** eNames).isEmpty) s ++ eNames
+      else throw new InvalidProgramException("Repeated names in states")
+    })
+  }
 }
 
 case class Command(stmtList: List[Statement]) extends Definition {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType = { //implements T-SEQ
     CommandType(stmtList.foldLeft(SimpleType("H"))((t: SimpleType, s: Statement) => TypeUtil.meet(kappa, t, s.caissonType(env, kappa).level)))
-  } 
+  }
 
   def computeEnvironment(state: String): Environment = new Environment(Map.empty[String, CaissonType], new FunctionMapping(Map(state -> this), Map()))
 
   def fallTransform(state: String) = Command(stmtList.map(_.fallTransform(state)))
+
+   def validateAndGetNames: Set[String] = Set.empty[String]
 }
 
 class StateDefinition(name: String, secLevel: String, paramAndTypeList: List[(String, String)], constraintList: Option[List[(String,String)]], definition: Definition) {
@@ -154,6 +164,16 @@ class StateDefinition(name: String, secLevel: String, paramAndTypeList: List[(St
   }
 
   def fallTransform(state: String) = new StateDefinition(name, secLevel, paramAndTypeList, constraintList, definition.fallTransform(name))
+
+  def validateAndGetNames: Set[String] = {
+    val stateNames = paramAndTypeList.foldLeft(Set(name))((s: Set[String], e: (String, String)) => {
+      if (s.contains(e._1)) throw new InvalidProgramException("Reused name: "+ e._1)
+      else s ++ Set(e._1)
+    })
+    val definitionNames = definition.validateAndGetNames
+    if ((stateNames ** definitionNames).isEmpty) stateNames ++ definitionNames
+    else throw new InvalidProgramException("Reused names in parent-child states")
+  }
 }
 
 sealed abstract class DataType
@@ -166,6 +186,8 @@ class DataStructure(dType: DataType, dimension: Option[Tuple2[Int, Int]])
 
 class DataDeclaration(dStructure: DataStructure, name: String, level: String) {
   def computeEnvironment(state: String): Environment = new Environment(Map(name -> SimpleType(level)), new FunctionMapping(Map(), Map()))
+
+  def getName = name
 }
 
 class Program(name: String, params: List[String], decl: List[DataDeclaration], defn: Definition) {
@@ -174,4 +196,18 @@ class Program(name: String, params: List[String], decl: List[DataDeclaration], d
   def fallTransform = new Program(name, params, decl, defn.fallTransform(name))
 
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType = defn.caissonType(env, kappa) //implements T-PROG
+
+  def validateNames: Set[String] = {
+    val usedNamesInDeclaration = decl.map(_.getName).foldLeft(Set[String]())((s: Set[String], e: String) => {
+      if (s.contains(e)) throw new InvalidProgramException("Reused name: "+e)
+        else s ++ Set(e)})
+    val usedNamesInDefinition = defn.validateAndGetNames
+    val usedNamesSet = if ((usedNamesInDeclaration ** usedNamesInDefinition).isEmpty) { usedNamesInDeclaration ++ usedNamesInDefinition } else throw new InvalidProgramException("Definition redeclares names in Declaration")
+    if (usedNamesSet.contains(name)) throw new InvalidProgramException("Reused name: "+name)
+    else usedNamesSet ++ Set(name)
+  }
+}
+
+class InvalidProgramException(msg: String) extends Exception{
+  def message = msg
 }
