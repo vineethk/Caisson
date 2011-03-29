@@ -11,7 +11,7 @@ object CaissonCompiler {
           val parser = new CaissonParser()
           val primitiveAST = parser.parseAll(parser.prog, reader) match {
             case parser.Success(p, _) => p
-            case _ => throw new CaissonParseException("Could not parse")
+            case f => println(f); throw new CaissonParseException("Could not parse")
           }  
           val ast = primitiveAST.fallTransform
           val env = ast.computeEnvironment
