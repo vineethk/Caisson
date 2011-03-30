@@ -29,6 +29,8 @@ object CaissonCompiler {
 
     def validate(ast: Program) {
       val namesSet = ast.validateNames
+      val typeVarsSet = ast.validateTypeVars(Set("L", "H"))
+      if (! (namesSet ** typeVarsSet).isEmpty) throw new InvalidProgramException("Variable names and Type variable names clash")
       discard(namesSet)
     }
     

@@ -1,3 +1,9 @@
+/*
+  Author: Vineeth Kashyap
+  Email: vineeth@cs.ucsb.edu
+  This file defines the Abstract Syntax Tree for Caisson Programs. Along with it, different transformations, type checkers, validators are also defined.
+ */
+
 sealed abstract class CaissonASTNode {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CaissonType
 }
@@ -102,6 +108,7 @@ sealed abstract class Definition extends CaissonASTNode {
   def fallTransform(state: String): Definition
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType
   def validateAndGetNames: Set[String]
+  def validateTypeVars(validTypeVarSet: Set[String]): Set[String]
 }
 
 case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  extends Definition {
@@ -125,7 +132,15 @@ case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  ext
     stateDefList.foldLeft(Set[String]())((s: Set[String], e: StateDefinition) => {
       val eNames = e.validateAndGetNames
       if ((s ** eNames).isEmpty) s ++ eNames
-      else throw new InvalidProgramException("Repeated names in states")
+      else throw new InvalidProgramException("Repeated names in state definitions")
+    })
+  }
+
+  def validateTypeVars(validTypeVarSet: Set[String]): Set[String] = {
+    stateDefList.foldLeft(Set.empty[String])((s: Set[String], e: StateDefinition) => {
+      val eTypeVars = e.validateTypeVars(validTypeVarSet)
+      if ((s ** eTypeVars).isEmpty) s ++  eTypeVars
+      else throw new InvalidProgramException("Repeated type variable names in state definitions")
     })
   }
 }
@@ -139,7 +154,9 @@ case class Command(stmtList: List[Statement]) extends Definition {
 
   def fallTransform(state: String) = Command(stmtList.map(_.fallTransform(state)))
 
-   def validateAndGetNames: Set[String] = Set.empty[String]
+  def validateAndGetNames: Set[String] = Set.empty[String]
+
+  def validateTypeVars(validTypeVarsSet: Set[String]): Set[String] = Set.empty[String]
 }
 
 class StateDefinition(name: String, secLevel: String, paramAndTypeList: List[(String, String)], constraintList: Option[List[(String,String)]], definition: Definition) {
@@ -174,6 +191,13 @@ class StateDefinition(name: String, secLevel: String, paramAndTypeList: List[(St
     if ((stateNames ** definitionNames).isEmpty) stateNames ++ definitionNames
     else throw new InvalidProgramException("Reused names in parent-child states")
   }
+
+  def validateTypeVars(validTypeVarsSet: Set[String]): Set[String] = {
+    val typeVarsSet = Set.empty[String] ++ paramAndTypeList.map(_._2)
+    if(! (typeVarsSet ** validTypeVarsSet).isEmpty) throw new InvalidProgramException("State "+name+" has invalid security level(s)")
+    if(! (typeVarsSet ++ validTypeVarsSet).contains(secLevel)) throw new InvalidProgramException("State "+name+" has invalid security level: "+secLevel)
+    definition.validateTypeVars(validTypeVarsSet ++ typeVarsSet) ++ typeVarsSet
+  }
 }
 
 sealed abstract class DataType
@@ -188,6 +212,8 @@ class DataDeclaration(dStructure: DataStructure, name: String, level: String) {
   def computeEnvironment(state: String): Environment = new Environment(Map(name -> SimpleType(level)), new FunctionMapping(Map(), Map()))
 
   def getName = name
+
+  def getLevel = level
 }
 
 class Program(name: String, params: List[String], decl: List[DataDeclaration], defn: Definition) {
@@ -205,6 +231,11 @@ class Program(name: String, params: List[String], decl: List[DataDeclaration], d
     val usedNamesSet = if ((usedNamesInDeclaration ** usedNamesInDefinition).isEmpty) { usedNamesInDeclaration ++ usedNamesInDefinition } else throw new InvalidProgramException("Definition redeclares names in Declaration")
     if (usedNamesSet.contains(name)) throw new InvalidProgramException("Reused name: "+name)
     else usedNamesSet ++ Set(name)
+  }
+
+  def validateTypeVars(validTypeVarSet: Set[String]): Set[String] = {
+    if (! decl.forall(dec => validTypeVarSet.contains(dec.getLevel))) throw new InvalidProgramException("Data Declarations use invalid security type")
+    defn.validateTypeVars(validTypeVarSet)
   }
 }
 
