@@ -23,7 +23,7 @@ class DirectedLatticeGraph {
     edges(a) += b
   }
 
-  def isConnected(a: String, b: String): Boolean = connected(a, b, mutable.Set.empty[String]) //optimize this by using transitive closure?
+  def isConnected(a: String, b: String): Boolean = if (a == b) true else connected(a, b, mutable.Set.empty[String]) //optimize this by using transitive closure?
 
   private def connected(a: String, b: String, visited: mutable.Set[String]): Boolean = {
     if (visited.contains(a)) false
