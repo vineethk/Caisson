@@ -13,7 +13,13 @@ class CaissonParser extends JavaTokenParsers {
     
     def dataStructure: Parser[DataStructure] = dataType~opt(dataSize) ^^ { case dt~ds => new DataStructure(dt, ds) }
     
-    def dataType: Parser[DataType] = "input" ^^ (_ => Input()) | "output" ^^ (_ => Output()) | "reg" ^^ (_ => Register()) | "inout" ^^ (_ => Inout())
+    def dataType: Parser[DataType] = ( "input" ^^ (_ => Input()) 
+                                     | "output" ^^ (_ => Output()) 
+                                     | "reg" ^^ (_ => Register()) 
+                                     | "inout" ^^ (_ => Inout()) 
+                                     | "imem" ^^ (_ => Imem())
+                                     | "dmem" ^^ (_ => Dmem())
+                                     | "wire" ^^ (_ => Wire()) )
     
     def dataSize: Parser[Tuple2[Int, Int]] = "["~>wholeNumber~":"~wholeNumber<~"]" ^^ { case a~":"~b => (a.toInt, b.toInt) }
     
@@ -36,18 +42,20 @@ class CaissonParser extends JavaTokenParsers {
 
     def expr: Parser[Expr] = ( arithExpr~condOp~arithExpr ^^ { case left~op~right => ComplexExpr(left, right, op) }
                                 | "("~>arithExpr~condOp~arithExpr<~")" ^^ { case left~op~right => ComplexExpr(left, right, op) }
-                                | arithExpr)
+                                | arithExpr
+                                | "!"~expr ^^ { case unop~e => UnaryExpr(unop, e) } )
         
     def arithExpr: Parser[Expr] = term~rep(binop~term)  ^^ { case t~lt => lt.foldLeft(t)((left, right) => right match { case op~rt => ComplexExpr(left, rt, op) }) }
    
     
     def term: Parser[Expr] = ( floatingPointNumber ^^ ((x) => Number(x.toFloat)) 
                             | ident               ^^ (Variable)
-                            | "("~>arithExpr<~")")       
+                            | "!"~arithExpr ^^ { case unop~e => UnaryExpr(unop, e) }                            
+                            | "("~>arithExpr<~")" )      
 
-    def binop: Parser[String] = "+" | "-"
+    def binop: Parser[String] = "+" | "-" | "&&" | "||" | "<<" | ">>" | "*" | "/"
                                 
-    def condOp: Parser[String] = "==" | "<"
+    def condOp: Parser[String] = "==" | "<" | ">" | "<=" | ">=" | "!="
                                         
     def branch: Parser[Branch] = "if"~>expr~"then"~"{"~command~"}"~opt("else"~"{"~command~"}") ^^ { case cond~"then"~"{"~tbody~"}"~Some("else"~"{"~ebody~"}") => 
                                                                                                                                         Branch(cond, tbody, Some(ebody))
@@ -60,4 +68,5 @@ class CaissonParser extends JavaTokenParsers {
 class CaissonParseException(msg: String) extends Exception {
   def message: String = msg
 }
+
 

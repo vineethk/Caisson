@@ -27,6 +27,10 @@ case class ComplexExpr(left: Expr, right: Expr, op: String) extends Expr {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): SimpleType = TypeUtil.join(kappa, left.caissonType(env, kappa), right.caissonType(env, kappa)) //implements rule T-OP
 }
 
+case class UnaryExpr(operator: String, operand: Expr) extends Expr {
+  def caissonType(env: Environment, kappa: DirectedLatticeGraph): SimpleType = operand.caissonType(env, kappa)
+}
+
 sealed abstract class Statement extends CaissonASTNode {
   def fallTransform(state: String): Statement
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType
@@ -205,6 +209,9 @@ case class Input() extends DataType
 case class Output() extends DataType
 case class Register() extends DataType
 case class Inout() extends DataType
+case class Imem() extends DataType
+case class Dmem() extends DataType
+case class Wire() extends DataType
 
 class DataStructure(dType: DataType, dimension: Option[Tuple2[Int, Int]])
 
