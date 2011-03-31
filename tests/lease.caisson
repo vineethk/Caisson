@@ -1,29 +1,33 @@
 prog lease(timer,data1,data2) = 
     input[7:0] timer:L;
     input data1:H, data2:L;
+    output[7:0] out1:H, out2:L;
     reg mode:L;
+    reg[7:0] temp1:H, temp2:L;
 in
 let state master:L() = {
     if mode == 0 then {
        mode := 1;
-       goto group(data1);
+       temp1 := 0;
+       goto group(data1,temp1,out1);
     } else {
        mode := 0;
-       goto group(data2);
+       temp2 := 0;
+       goto group(data2,temp2,out2);
     }
 }
-state group:L(data:A)[L<A] = {
+state group:L(data:A,temp:A,out:A)[L<A] = {
     let state S1:A() = {
         if data == 0 then { goto S2(); } 
-	else { goto S1(); }
+	else { temp := temp + 1; goto S1(); }
     }
     state S2:A() = {
         if data == 0 then { goto S1(); } 
-	else { goto S2(); }
+	else { temp := temp + 2; goto S2(); }
     }
     in
         timer := timer - 1;
-        if timer == 0 then { goto master(); } 
+        if timer == 0 then { out := temp; goto master(); } 
 	else { fall; }
 }
 in fall;
