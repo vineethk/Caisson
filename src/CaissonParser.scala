@@ -88,18 +88,3 @@ class CaissonParseException(msg: String) extends Exception {
   def message: String = msg
 }
 
-import java.io.FileReader
-
-object ParserTester {
-    def main(args: Array[String]) {
-        if (args.length != 1) { 
-          println("Please provide caisson filename to be compiled")
-          exit(-1)
-        }
-        val reader = new FileReader(args(0))
-        val parser = new CaissonParser()
-        println(parser.parseAll(parser.verilogNumber, reader))
-    }
-}
-
-
