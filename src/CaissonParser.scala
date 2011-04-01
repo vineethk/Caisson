@@ -1,11 +1,12 @@
 /*
   Author: Vineeth Kashyap
-
+  Email: vineeth@cs.ucsb.edu
+  In this file, the parser-combinator for Caisson is specified
 */
 
 import scala.util.parsing.combinator._
 
-class CaissonParser extends JavaTokenParsers {
+class CaissonParser extends RegexParsers {
     def prog: Parser[Program] = "prog"~>ident~"("~repsep(ident, ",")~")"~"="~declarations~"in"~definition ^^ {case name~"("~params~")"~"="~decl~"in"~defn => 
                                                                                                                 new Program(name, params, decl, defn)}
     
@@ -53,7 +54,7 @@ class CaissonParser extends JavaTokenParsers {
     def arithExpr: Parser[Expr] = term~rep(binop~term)  ^^ { case t~lt => lt.foldLeft(t)((left, right) => right match { case op~rt => ComplexExpr(left, rt, op) }) }
    
     
-    def term: Parser[Expr] = ( floatingPointNumber ^^ ((x) => Number(x.toFloat)) 
+    def term: Parser[Expr] = ( verilogNumber ^^ (Number) 
                             | ident               ^^ (Variable)
                             | "!"~arithExpr ^^ { case unop~e => UnaryExpr(unop, e) }                            
                             | "("~>arithExpr<~")" )      
@@ -67,11 +68,38 @@ class CaissonParser extends JavaTokenParsers {
                                                                                                     case cond~"then"~"{"~tbody~"}"~None => Branch(cond, tbody, None) }
     
     def jump: Parser[Jump] =  "goto"~>ident~"("~repsep(ident, ",")<~")" ^^ { case target~"("~varList => Jump(target, varList) }
-                  
+    
+    def verilogNumber: Parser[String] = (binaryNumber | floatingPointNumber)
+
+    def ident: Parser[String] = """[a-zA-Z_]\w*""".r
+    
+    def wholeNumber: Parser[String] = """-?\d+""".r
+    
+    def decimalNumber: Parser[String] = """(\d+(\.\d*)?|\d*\.\d+)""".r
+
+    def stringLiteral: Parser[String] = ("\""+"""([^"\p{Cntrl}\\]|\\[\\/bfnrt]|\\u[a-fA-F0-9]{4})*"""+"\"").r
+    
+    def floatingPointNumber: Parser[String] = """-?(\d+(\.\d*)?|\d*\.\d+)([eE][+-]?\d+)?[fFdD]?""".r
+    
+    def binaryNumber: Parser[String] = """\d+\'b[01]+""".r
 }
 
 class CaissonParseException(msg: String) extends Exception {
   def message: String = msg
+}
+
+import java.io.FileReader
+
+object ParserTester {
+    def main(args: Array[String]) {
+        if (args.length != 1) { 
+          println("Please provide caisson filename to be compiled")
+          exit(-1)
+        }
+        val reader = new FileReader(args(0))
+        val parser = new CaissonParser()
+        println(parser.parseAll(parser.verilogNumber, reader))
+    }
 }
 
 

@@ -12,7 +12,7 @@ sealed abstract class Expr extends CaissonASTNode {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): SimpleType
 }
 
-case class Number(value: Float) extends Expr {
+case class Number(value: String) extends Expr {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): SimpleType = SimpleType("L") //implements rule T-CONST
 }
 
