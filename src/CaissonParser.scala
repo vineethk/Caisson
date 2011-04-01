@@ -13,11 +13,11 @@ class CaissonParser extends RegexParsers {
     def declarations: Parser[List[DataDeclaration]] = rep1(dataDeclaration<~";") ^^ ((lst: List[List[DataDeclaration]]) => 
                                                                                        lst.reduceLeft((a: List[DataDeclaration], b: List[DataDeclaration]) => a ++ b))
     
-    def dataDeclaration: Parser[List[DataDeclaration]] = dataStructure~rep1sep(pair, ",") ^^ { case ds~lst => lst.map((x => new DataDeclaration(ds, x._1, x._2))) }
+    def dataDeclaration: Parser[List[DataDeclaration]] = dataStructure~rep1sep(pair, ",") ^^ { case ds~lst => lst.map((x => new DataDeclaration(new DataStructure(ds, x._3), x._1, x._2))) }
     
-    def pair: Parser[Tuple2[String, String]] = ident~":"~ident ^^ { case a~":"~b => (a, b) }
+    def pair: Parser[(String, String, Option[(Int, Int)])] = ident~opt(dataSize)~":"~ident ^^ { case a~ds~":"~b => (a, b, ds) }
     
-    def dataStructure: Parser[DataStructure] = dataType~opt(dataSize) ^^ { case dt~ds => new DataStructure(dt, ds) }
+    def dataStructure: Parser[DataStructure] = dataType~opt(dataSize) ^^ { case dt~ds => new DataStructure(dt, ds, None) }
     
     def dataType: Parser[DataType] = ( "input" ^^ (_ => Input()) 
                                      | "output" ^^ (_ => Output()) 
@@ -27,7 +27,7 @@ class CaissonParser extends RegexParsers {
                                      | "dmem" ^^ (_ => Dmem())
                                      | "wire" ^^ (_ => Wire()) )
     
-    def dataSize: Parser[Tuple2[Int, Int]] = "["~>wholeNumber~":"~wholeNumber<~"]" ^^ { case a~":"~b => (a.toInt, b.toInt) }
+    def dataSize: Parser[(Int, Int)] = "["~>wholeNumber~":"~wholeNumber<~"]" ^^ { case a~":"~b => (a.toInt, b.toInt) }
     
     def definition: Parser[Definition] = ("let"~>rep1(stateDefinition)~"in"~command ^^ { case sdList~"in"~cmd => LetDefinition(sdList, cmd) }
                                   | command)
@@ -55,11 +55,14 @@ class CaissonParser extends RegexParsers {
    
     
     def term: Parser[Expr] = ( verilogNumber ^^ (Number) 
+                            | ident~arrayIndexing~opt(arrayIndexing) ^^ { case a~e1~e2 => ArrayExpr(Variable(a), e1, e2) }
                             | ident               ^^ (Variable)
                             | "!"~arithExpr ^^ { case unop~e => UnaryExpr(unop, e) }                            
                             | "("~>arithExpr<~")" )      
 
-    def binop: Parser[String] = "+" | "-" | "&&" | "||" | "<<" | ">>" | "*" | "/"
+    def arrayIndexing: Parser[Expr] = "["~>expr<~"]"
+    
+    def binop: Parser[String] = "+" | "-" | "&&" | "||" | "<<" | ">>" | "*" | "/" | ":"
                                 
     def condOp: Parser[String] = "==" | "<" | ">" | "<=" | ">=" | "!="
                                         
@@ -105,7 +108,7 @@ object ParserTester {
         }
         val reader = new FileReader(args(0))
         val parser = new CaissonParser()
-        println(parser.parseAll(parser.kase, reader))
+        println(parser.parseAll(parser.expr, reader))
     }
 } */
 

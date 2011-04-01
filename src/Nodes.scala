@@ -31,6 +31,16 @@ case class UnaryExpr(operator: String, operand: Expr) extends Expr {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): SimpleType = operand.caissonType(env, kappa)
 }
 
+case class ArrayExpr(name: Variable, dimension1: Expr, dimension2: Option[Expr]) extends Expr {
+  def caissonType(env: Environment, kappa: DirectedLatticeGraph): SimpleType = { //implements T-ARRAY
+    val partialType = TypeUtil.join(kappa, name.caissonType(env, kappa), dimension1.caissonType(env, kappa))
+    dimension2 match {
+      case Some(x) => TypeUtil.join(kappa, partialType, x.caissonType(env, kappa))
+      case None => partialType
+    }
+  }
+}
+
 sealed abstract class Statement extends CaissonASTNode {
   def fallTransform(state: String): Statement
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType
@@ -227,7 +237,13 @@ case class Imem() extends DataType
 case class Dmem() extends DataType
 case class Wire() extends DataType
 
-class DataStructure(dType: DataType, dimension: Option[Tuple2[Int, Int]])
+class DataStructure(dType: DataType, dimension1: Option[(Int, Int)], dimension2: Option[(Int, Int)]) {
+  def this(ds: DataStructure, dim2: Option[(Int, Int)]) = this(ds.dataType, ds.dim1, dim2)
+  
+  def dataType = dType
+  
+  def dim1 = dimension1
+}
 
 class DataDeclaration(dStructure: DataStructure, name: String, level: String) {
   def computeEnvironment(state: String): Environment = new Environment(Map(name -> SimpleType(level)), new FunctionMapping(Map(), Map()))
