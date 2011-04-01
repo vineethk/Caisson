@@ -40,9 +40,9 @@ class CaissonParser extends RegexParsers {
     
     def constraintList: Parser[List[Tuple2[String,String]]] = "["~>repsep(ident~"<"~ident,",")<~"]" ^^ (lst => lst.map((x => x match { case a~"<"~b => (a,b) })))
     
-    def command: Parser[Command] = rep1(statement<~";" | branch) ^^ (Command)
+    def command: Parser[Command] = rep1(statement<~";" | branch | kase) ^^ (Command)
     
-    def statement: Parser[Statement] = assignment | branch | jump | "fall" ^^ (_ => Fall(None)) | "skip" ^^ (_ => Skip())
+    def statement: Parser[Statement] = assignment | branch | jump | "fall" ^^ (_ => Fall(None)) | "skip" ^^ (_ => Skip()) | kase
     
     def assignment: Parser[Assignment] = ident~":="~expr ^^ { case lv~":="~rv => Assignment(lv, rv) }
 
@@ -67,6 +67,12 @@ class CaissonParser extends RegexParsers {
                                                                                                                                         Branch(cond, tbody, Some(ebody))
                                                                                                     case cond~"then"~"{"~tbody~"}"~None => Branch(cond, tbody, None) }
     
+    def kase: Parser[Kase] = caseHeader~"{"~rep1(caseBody)<~"}" ^^ { case cond~"{"~cList => Kase(cond, cList.reduceLeft((a, b) => a ++ b)) }
+    
+    def caseBody: Parser[Map[String, Command]] = (verilogNumber | "default")~":"~"{"~command<~"}" ^^ { case key~":"~"{"~c => Map(key -> c) }
+    
+    def caseHeader: Parser[Expr] = "case"~"("~expr<~")" ^^ { case "case"~"("~e => e }
+    
     def jump: Parser[Jump] =  "goto"~>ident~"("~repsep(ident, ",")<~")" ^^ { case target~"("~varList => Jump(target, varList) }
     
     def verilogNumber: Parser[String] = (binaryNumber | floatingPointNumber)
@@ -87,4 +93,19 @@ class CaissonParser extends RegexParsers {
 class CaissonParseException(msg: String) extends Exception {
   def message: String = msg
 }
+
+/* For testing
+import java.io.FileReader
+
+object ParserTester {
+    def main(args: Array[String]) {
+        if (args.length != 1) { 
+          println("Please provide caisson filename to be compiled")
+          exit(-1)
+        }
+        val reader = new FileReader(args(0))
+        val parser = new CaissonParser()
+        println(parser.parseAll(parser.kase, reader))
+    }
+} */
 

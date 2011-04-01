@@ -69,6 +69,20 @@ case class Branch(cond: Expr, thenBody: Command, elseBody: Option[Command]) exte
   }
 }
 
+case class Kase(cond: Expr, caseMap: Map[String, Command]) extends Statement {
+  def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType = { //implements T-CASE
+    val condType = cond.caissonType(env, kappa)
+    val bodyTypeList = caseMap.values.toList.map(_.caissonType(env, kappa).level)
+    val bodyTypeLevel = bodyTypeList.foldLeft(SimpleType("H"))((t1: SimpleType, t2: SimpleType) => TypeUtil.meet(kappa, t1, t2))
+    if(kappa.isConnected(condType.level, bodyTypeLevel.level)) CommandType(bodyTypeLevel)
+    else throw new CaissonTypeException("Case statements not typeable")
+  }
+  
+  def fallTransform(state: String) = {
+    Kase(cond, caseMap.toList.map((c) => Map(c._1 -> c._2.fallTransform(state))).reduceLeft((a, b) => a ++ b))
+  }
+}
+
 case class Jump(target: String, argList: List[String]) extends Statement {
   def fallTransform(state: String) = this
 

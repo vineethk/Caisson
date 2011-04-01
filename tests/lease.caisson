@@ -6,15 +6,19 @@ prog lease(timer,data1,data2) =
     reg[7:0] temp1:H, temp2:L;
 in
 let state master:L() = {
-    if mode == 0 then {
+    case (mode) {
+    0: 
+    {
        mode := 1;
        temp1 := 0;
        goto group(data1,temp1,out1);
-    } else {
+    } 
+    default:  {
        mode := 0;
        temp2 := 0;
        goto group(data2,temp2,out2);
     }
+   } 
 }
 state group:L(data:A,temp:A,out:A)[L<A] = {
     let state S1:A() = {
