@@ -62,7 +62,7 @@ class CaissonParser extends RegexParsers {
 
     def arrayIndexing: Parser[Expr] = "["~>expr<~"]"
     
-    def binop: Parser[String] = "+" | "-" | "&&" | "||" | "<<" | ">>" | "*" | "/" | ":"
+    def binop: Parser[String] = "+" | "-" | "&&" | "||" | "<<" | ">>" | "*" | "/" | ":" | "&" | "|"
                                 
     def condOp: Parser[String] = "==" | "<" | ">" | "<=" | ">=" | "!="
     
