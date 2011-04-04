@@ -49,7 +49,7 @@ class CaissonParser extends RegexParsers {
     def expr: Parser[Expr] = ( arithExpr~condOp~arithExpr ^^ { case left~op~right => ComplexExpr(left, right, op) }
                                 | "("~>arithExpr~condOp~arithExpr<~")" ^^ { case left~op~right => ComplexExpr(left, right, op) }
                                 | arithExpr
-                                | "!"~expr ^^ { case unop~e => UnaryExpr(unop, e) } )
+                                | unop~expr ^^ { case op~e => UnaryExpr(op, e) } )
         
     def arithExpr: Parser[Expr] = term~rep(binop~term)  ^^ { case t~lt => lt.foldLeft(t)((left, right) => right match { case op~rt => ComplexExpr(left, rt, op) }) }
    
@@ -57,7 +57,7 @@ class CaissonParser extends RegexParsers {
     def term: Parser[Expr] = ( verilogNumber ^^ (Number) 
                             | ident~arrayIndexing~opt(arrayIndexing) ^^ { case a~e1~e2 => ArrayExpr(Variable(a), e1, e2) }
                             | ident               ^^ (Variable)
-                            | "!"~arithExpr ^^ { case unop~e => UnaryExpr(unop, e) }                            
+                            | unop~arithExpr ^^ { case op~e => UnaryExpr(op, e) }                            
                             | "("~>arithExpr<~")" )      
 
     def arrayIndexing: Parser[Expr] = "["~>expr<~"]"
@@ -65,6 +65,8 @@ class CaissonParser extends RegexParsers {
     def binop: Parser[String] = "+" | "-" | "&&" | "||" | "<<" | ">>" | "*" | "/" | ":"
                                 
     def condOp: Parser[String] = "==" | "<" | ">" | "<=" | ">=" | "!="
+    
+    def unop: Parser[String] = "!" | "~"
                                         
     def branch: Parser[Branch] = "if"~>expr~"then"~"{"~command~"}"~opt("else"~"{"~command~"}") ^^ { case cond~"then"~"{"~tbody~"}"~Some("else"~"{"~ebody~"}") => 
                                                                                                                                         Branch(cond, tbody, Some(ebody))
@@ -72,9 +74,12 @@ class CaissonParser extends RegexParsers {
     
     def kase: Parser[Kase] = caseHeader~"{"~rep1(caseBody)<~"}" ^^ { case cond~"{"~cList => Kase(cond, cList.reduceLeft((a, b) => a ++ b)) }
     
-    def caseBody: Parser[Map[String, Command]] = (verilogNumber | "default")~":"~"{"~command<~"}" ^^ { case key~":"~"{"~c => Map(key -> c) }
+    def caseBody: Parser[Map[List[String], Command]] = caseList~":"~"{"~command<~"}" ^^ { case key~":"~"{"~c => Map(key -> c) }
     
     def caseHeader: Parser[Expr] = "case"~"("~expr<~")" ^^ { case "case"~"("~e => e }
+    
+    def caseList: Parser[List[String]] = ( rep1sep(verilogNumber, ",") 
+                                         | "default" ^^ (_ => List("default")) )
     
     def jump: Parser[Jump] =  "goto"~>ident~"("~repsep(ident, ",")<~")" ^^ { case target~"("~varList => Jump(target, varList) }
     

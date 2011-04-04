@@ -79,7 +79,7 @@ case class Branch(cond: Expr, thenBody: Command, elseBody: Option[Command]) exte
   }
 }
 
-case class Kase(cond: Expr, caseMap: Map[String, Command]) extends Statement {
+case class Kase(cond: Expr, caseMap: Map[List[String], Command]) extends Statement {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType = { //implements T-CASE
     val condType = cond.caissonType(env, kappa)
     val bodyTypeList = caseMap.values.toList.map(_.caissonType(env, kappa).level)
