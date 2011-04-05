@@ -1,0 +1,215 @@
+prog pipelined_cpu(reset) = 
+
+input reset:L;
+
+reg mode:L;
+reg[31:0] timer_l:L;
+reg[31:0] timer_h:H;
+reg timer_on_l:L;
+
+reg[31:0] regfile_l:L;
+reg[31:0] regfile_h:H;
+
+reg[10:0] pc_l:L;
+reg[10:0] pc_h:H;
+
+reg[10:0] targetPC_l:L;
+reg[10:0] targetPC_h:H;
+
+reg[10:0] returnPC_l:L;
+reg[10:0] returnPC_h:H;
+
+reg[255:0] inst_mem_l:L;
+reg[255:0] inst_mem_h:H;
+reg[2047:0] data_mem_l:L;
+reg[2047:0] data_mem_h:H;
+
+reg[31:0] inst_fd_l:L;
+reg[31:0] inst_fd_h:H;
+reg[31:0] inst_dm_l:L;
+reg[31:0] inst_dm_h:H;
+reg[31:0] inst_mw_l:L;
+reg[31:0] inst_mw_h:H;
+
+reg[31:0] reg1_l:L;
+reg[31:0] reg1_h:H;
+reg[31:0] reg2_l:L;
+reg[31:0] reg2_h:H;
+reg[31:0] reg3_l:L;
+reg[31:0] reg3_h:H;
+
+reg[31:0] alu_l:L;
+reg[31:0] alu_h:H;
+
+reg mem_read_l:L;
+reg mem_read_h:H;
+reg mem_write_l:L;
+reg mem_write_h:H;
+
+reg[10:0] dmem_addr_l:L;
+reg[10:0] dmem_addr_h:H;
+reg[32:0] store_val_l:L;
+reg[32:0] store_val_h:H;
+
+reg[32:0] dmem_out_l:L;
+reg[32:0] dmem_out_h:H;
+
+in
+let state root:L() = {
+	let state default:L() = {		
+		if reset==1 then {
+			mode := 0;
+			reset := 0;
+			goto cpu();
+		}
+		else {
+			goto default();
+		}
+	}
+	
+	state cpu:L() = {
+		let state master:L() = {
+			if timer_l==0 then {
+				mode := 1;		
+				timer_on_l := 1;
+				pc_h := targetPC_l;
+				goto pipelinegroup(regfile_h, pc_h, reg1_h, reg2_h, reg3_h, mem_read_h, mem_write_h, inst_fd_h, inst_dm_h, inst_mw_h, alu_h, inst_mem_h, data_mem_h, dmem_addr_h, store_val_h, dmem_out_h, timer_h, targetPC_h,returnPC_h);
+			}
+			else {
+				mode := 0;	
+				pc_l := returnPC_l;
+				goto pipelinegroup(regfile_l, pc_l, reg1_l, reg2_l, reg3_l, mem_read_l, mem_write_l, inst_fd_l, inst_dm_l, inst_mw_l, alu_l, inst_mem_l, data_mem_l, dmem_addr_l, store_val_l, dmem_out_l, timer_l, targetPC_l,returnPC_l);
+			}
+		}
+		
+		state pipelinegroup:L(regfile:A, pc:A, reg1:A, reg2:A, reg3:A, mem_read:A, mem_write:A, inst_fd:A, inst_dm:A, inst_mw:A, alu:A, inst_mem:A, data_mem:A, dmem_addr:A, store_val:A, dmem_out:A, timer:A, targetPC:A, returnPC:A)[L<A,A<H] = {
+			let state pipeline:A() = {
+				inst_fd := inst_mem[pc];
+				
+				reg1 := regfile[inst_fd];
+				reg2 := regfile[inst_fd];
+				reg3 := 0;
+				mem_read := 0;
+				mem_write := 0;
+				
+				case (inst_fd) {
+					12'b100000000000:  
+					{
+						reg3 := reg1 + reg2;
+					}
+					12'b110000000000:  
+					{
+						reg3 := reg1 - reg2;
+					}	
+					12'b111000000000:  
+					{
+						reg3 := reg1 >> reg2;
+					}	
+					12'b111100000000:  
+					{
+						reg3 := reg1 << reg2;
+					}
+					12'b111110000000:  
+					{
+						reg3 := reg1 & reg2;
+					}	
+					12'b111111000000:  
+					{
+						reg3 := reg1 | reg2;
+					}	
+					12'b111111100000:  
+					{
+						reg3 := ~reg1;
+					}	
+					12'b010000000000:  
+					{
+						dmem_addr := regfile[inst_fd];	
+						mem_read := 1;		
+					}
+					12'b001000000000:  
+					{		
+						store_val := regfile[inst_fd];
+						dmem_addr := regfile[inst_fd];	  
+						mem_write := 1;
+					}
+					12'b011000000000:  
+					{
+						reg3 := inst_fd;
+					}
+					12'b000100000000:  
+					{
+						reg3 := regfile[inst_fd];
+					}	
+					default:
+					{
+						skip;
+					}
+				}	
+				inst_dm := inst_fd;
+				
+				if mem_read then {
+					dmem_out := data_mem[dmem_addr];
+				}
+				if mem_write then {
+					data_mem := store_val;
+				}
+				inst_mw := inst_dm;
+				alu := reg3;
+				
+				pc := pc + 11'b1;
+				case (inst_mw) {
+					12'b100000000000, 12'b110000000000, 12'b111000000000, 12'b111100000000, 12'b111110000000, 12'b111111000000, 12'b111111100000:  
+					{
+						regfile := alu; 	
+					}
+					12'b010000000000:  
+					{
+						regfile := dmem_out;
+					}
+					12'b011000000000:  
+					{
+						regfile := alu; 	 
+					}
+					12'b000100000000:        							 
+					{
+						if regfile[inst_mw] == 0 then {
+							pc := alu;
+						}
+					}
+					12'b000010000000:  
+					{
+						if mode == 0 then {
+							timer := regfile[inst_mw];	
+							targetPC := regfile[inst_mw];
+							returnPC := pc[11'b1];
+						}
+					}
+					default:
+					{
+						skip;
+					}
+				}
+			}
+			in
+				if timer_on_l then {
+					if timer_l==0 then {
+						goto master();
+					}
+					else {
+						timer_l := timer_l - 1;
+						fall;
+					}
+				} else {
+					if timer_l>0 then {
+						goto master();
+					}
+				}
+		}
+		in
+			fall;
+	}
+	in
+		fall;
+}
+in
+	fall;
