@@ -23,6 +23,7 @@ object CaissonCompiler {
           case e: CaissonTypeException => println(e.message)
           case e: CaissonParseException => println(e.message)
           case e: InvalidProgramException => println(e.message)
+          case e: NoSuchElementException => println(e.getMessage.split(":")(1)+" is perhaps not declared")
           case e: Exception => e.printStackTrace()
         }  
  }
