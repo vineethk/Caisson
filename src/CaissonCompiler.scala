@@ -37,4 +37,3 @@ object CaissonCompiler {
     
     private def discard(x: AnyRef) {}
 }
-

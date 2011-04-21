@@ -3,7 +3,7 @@
   Email: vineeth@cs.ucsb.edu
   This file defines the Abstract Syntax Tree for Caisson Programs. Along with it, different transformations, type checkers, validators are also defined.
  */
-
+ 
 sealed abstract class CaissonASTNode {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CaissonType
 }
@@ -159,7 +159,7 @@ case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  ext
   def validateAndGetNames: Set[String] = {
     stateDefList.foldLeft(Set[String]())((s: Set[String], e: StateDefinition) => {
       val eNames = e.validateAndGetNames
-      if ((s ** eNames).isEmpty) s ++ eNames
+      if ((s & eNames).isEmpty) s ++ eNames
       else throw new InvalidProgramException("Repeated names in state definitions")
     })
   }
@@ -167,7 +167,7 @@ case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  ext
   def validateTypeVars(validTypeVarSet: Set[String]): Set[String] = {
     stateDefList.foldLeft(Set.empty[String])((s: Set[String], e: StateDefinition) => {
       val eTypeVars = e.validateTypeVars(validTypeVarSet)
-      if ((s ** eTypeVars).isEmpty) s ++  eTypeVars
+      if ((s & eTypeVars).isEmpty) s ++  eTypeVars
       else throw new InvalidProgramException("Repeated type variable names in state definitions")
     })
   }
@@ -228,14 +228,30 @@ class StateDefinition(name: String, secLevel: String, paramAndTypeList: List[(St
   }
 }
 
-sealed abstract class DataType
-case class Input() extends DataType
-case class Output() extends DataType
-case class Register() extends DataType
-case class Inout() extends DataType
-case class Imem() extends DataType
-case class Dmem() extends DataType
-case class Wire() extends DataType
+sealed abstract class DataType {
+  def genCode: String
+}
+case class Input() extends DataType {
+  def genCode = "input"
+}
+case class Output() extends DataType {
+  def genCode = "output"
+}
+case class Register() extends DataType {
+  def genCode = "reg"
+}
+case class Inout() extends DataType {
+  def genCode = "inout"
+}
+case class Imem() extends DataType {
+  def genCode = "imem"
+}
+case class Dmem() extends DataType {
+  def genCode = "dmem"
+}
+case class Wire() extends DataType {
+  def genCode = "wire"
+}
 
 class DataStructure(dType: DataType, dimension1: Option[(Int, Int)], dimension2: Option[(Int, Int)]) {
   def this(ds: DataStructure, dim2: Option[(Int, Int)]) = this(ds.dataType, ds.dim1, dim2)
@@ -243,6 +259,21 @@ class DataStructure(dType: DataType, dimension1: Option[(Int, Int)], dimension2:
   def dataType = dType
   
   def dim1 = dimension1
+
+  def dim2 = dimension2
+
+  def genCode = dType.genCode + genDimensionCode
+
+  def genDimensionCode = {
+    (dimension1 match {
+      case Some(x) => "[" + x._1 + ":" + x._2 +"]"
+      case None => ""
+    }) + (
+    dimension2 match {
+      case Some(x) => "[" + x._1 + ":" + x._2 +"]"
+      case None => ""
+    })
+  }
 }
 
 class DataDeclaration(dStructure: DataStructure, name: String, level: String) {
@@ -251,6 +282,23 @@ class DataDeclaration(dStructure: DataStructure, name: String, level: String) {
   def getName = name
 
   def getLevel = level
+
+  def genCode = {
+    dStructure.genCode + " " + name + ";" +
+    dStructure.dataType match {
+      case d: Input =>
+      case d: Output => {
+        "reg" + dStructure.genDimensionCode + " " + name + "_wout;\n"
+      }
+      case d: Register => { "wire" + dStructure.genDimensionCode + " " + name + "_win;\n" +
+        "reg" + dStructure.genDimensionCode + " " + name + "_wout;\n"
+      }
+      case d: Inout =>
+      case d: Imem =>
+      case d: Dmem =>
+      case d: Wire =>
+    }
+  }
 }
 
 class Program(name: String, params: List[String], decl: List[DataDeclaration], defn: Definition) {
@@ -265,7 +313,7 @@ class Program(name: String, params: List[String], decl: List[DataDeclaration], d
       if (s.contains(e)) throw new InvalidProgramException("Reused name: "+e)
         else s ++ Set(e)})
     val usedNamesInDefinition = defn.validateAndGetNames
-    val usedNamesSet = if ((usedNamesInDeclaration ** usedNamesInDefinition).isEmpty) { usedNamesInDeclaration ++ usedNamesInDefinition } else throw new InvalidProgramException("Definition redeclares names in Declaration")
+    val usedNamesSet = if ((usedNamesInDeclaration & usedNamesInDefinition).isEmpty) { usedNamesInDeclaration ++ usedNamesInDefinition } else throw new InvalidProgramException("Definition redeclares names in Declaration")
     if (usedNamesSet.contains(name)) throw new InvalidProgramException("Reused name: "+name)
     else usedNamesSet ++ Set(name)
   }
@@ -273,6 +321,28 @@ class Program(name: String, params: List[String], decl: List[DataDeclaration], d
   def validateTypeVars(validTypeVarSet: Set[String]): Set[String] = {
     if (! decl.forall(dec => validTypeVarSet.contains(dec.getLevel))) throw new InvalidProgramException("Data Declarations use invalid security type")
     defn.validateTypeVars(validTypeVarSet)
+  }
+
+  def codeGen = {
+    //TODO: Create cur_state = log2(total number of leaf nodes)
+    val regNames = decl.filter((x: DataDeclaration) => x.dStructure.isInstanceOf[Register]).map(_.name) ++ List("cur_state")
+    val outNames = decl.filter((x: DataDeclaration) => x.dStructure.isInstanceOf[Output]).map(_.name)
+    //TODO: Use regNames and outNames
+    "module " + name + "(" + params.mkString(",") + "clk,reset);\n" +
+    "input clk; \n" +
+    "input reset; \n" +
+    decl.map((x: DataDeclaration) => x.genCode).mkString +
+    outNames.map((x: String) => "assign " + x + " = " + x + "_wout;\n").mkString +
+    regNames.map((x: String) => "assign " + x + "_win = " + x + ";\n").mkString +
+    "\nalways @ (posedge clk)\nbegin\n" +
+    regNames.map((x: String) => x + " <= " + x + "_wout;\n").mkString +
+    "end\n\n" +
+    "always @ (*)\nbegin\n" +
+    regNames.map((x: String) => x + "_wout = " + x + "_win;\n").mkString +
+    "if (reset) begin\n" +
+    regNames.map((x: String) => x + "_wout = 0;\n").mkString +
+    "end\n" +
+    defn.genCode
   }
 }
 

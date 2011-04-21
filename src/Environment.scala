@@ -12,4 +12,3 @@ class FunctionMapping(cmd: Map[String, Command], dflt: Map[String, String]) {
 
   def + (that: FunctionMapping): FunctionMapping = new FunctionMapping(cmd ++ that.command, dflt ++ that.default)
 }
-

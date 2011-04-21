@@ -38,4 +38,3 @@ class DirectedLatticeGraph {
   def isConsistent: Boolean = !(isConnected("H", "L"))
 
 }
-
