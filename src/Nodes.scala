@@ -10,10 +10,14 @@ sealed abstract class CaissonASTNode {
 
 sealed abstract class Expr extends CaissonASTNode {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): SimpleType
+
+  def codeGen(rhsMap: Map[String, String]): String
 }
 
 case class Number(value: String) extends Expr {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): SimpleType = SimpleType("L") //implements rule T-CONST
+
+  def codeGen(rhsMap: Map[String, String]): String = value
 }
 
 case class Variable(name: String) extends Expr {
@@ -21,14 +25,20 @@ case class Variable(name: String) extends Expr {
     assert(env.typeMap(name).isInstanceOf[SimpleType])
     env.typeMap(name).asInstanceOf[SimpleType]
   }
+
+  def codeGen(rhsMap: Map[String, String]): String = rhsMap(name)
 }
 
 case class ComplexExpr(left: Expr, right: Expr, op: String) extends Expr {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): SimpleType = TypeUtil.join(kappa, left.caissonType(env, kappa), right.caissonType(env, kappa)) //implements rule T-OP
+
+  def codeGen(rhsMap: Map[String, String]): String = left.codeGen(rhsMap) + " " + op + " " + right.codeGen(rhsMap)
 }
 
 case class UnaryExpr(operator: String, operand: Expr) extends Expr {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): SimpleType = operand.caissonType(env, kappa)
+
+  def codeGen(rhsMap: Map[String, String]): String = operator + operand.codeGen(rhsMap)
 }
 
 case class ArrayExpr(name: Variable, dimension1: Expr, dimension2: Option[Expr]) extends Expr {
@@ -39,11 +49,20 @@ case class ArrayExpr(name: Variable, dimension1: Expr, dimension2: Option[Expr])
       case None => partialType
     }
   }
+
+  def codeGen(rhsMap: Map[String, String]): String = {
+    name.codeGen(rhsMap) + "[" + dimension1.codeGen(rhsMap) + "]" + (dimension2 match {
+      case Some(x) => "[" + x.codeGen(rhsMap) + "]"
+      case None => ""
+    })
+  }
 }
 
 sealed abstract class Statement extends CaissonASTNode {
   def fallTransform(state: String): Statement
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType
+  def computeGotoInformation: List[(String, List[String])]
+  def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode, curLevel: Int, lhsMap: Map[String, List[String]], rhsMap: Map[String, String]): String
 }
 
 case class Assignment(lvalue: String, rvalue: Expr) extends Statement {
@@ -55,6 +74,25 @@ case class Assignment(lvalue: String, rvalue: Expr) extends Statement {
   }
 
   def fallTransform(state: String) = this
+
+  def computeGotoInformation: List[(String, List[String])] = {
+    List.empty[(String, List[String])]
+  }
+
+  def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode, curLevel: Int, lhsMap: Map[String, List[String]], rhsMap: Map[String, String]): String = {
+    val lhs = lhsMap(lvalue)
+    val rhs = rvalue.codeGen(rhsMap)
+    if (lhs.length == 1) lhs(0) + " = " + rhs  + ";\n"
+    else {
+      "case (" + lhs(0) + ")\n" +
+      List.range(0, (lhs.length-1)).map((i: Int) => {
+        i + ": begin\n" +
+        lhs(i+1) + " = " + rhs + ";\n" +
+        "end\n"
+      }).mkString +
+      "endcase\n"
+    }
+  }
 }
 
 case class Branch(cond: Expr, thenBody: Command, elseBody: Option[Command]) extends Statement {
@@ -77,6 +115,24 @@ case class Branch(cond: Expr, thenBody: Command, elseBody: Option[Command]) exte
     }
     Branch(cond, thenBody.fallTransform(state), transformedElse)
   }
+
+  //gotoInformation will be the one in thenbody + the one in elsebody
+  def computeGotoInformation: List[(String, List[String])] = {
+    thenBody.computeGotoInformation ++ (elseBody match {
+      case Some(x) => x.computeGotoInformation
+      case None => List.empty[(String, List[String])]
+    })
+  }
+
+  def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode, curLevel: Int, lhsMap: Map[String, List[String]], rhsMap: Map[String, String]): String = {
+    "if (" + cond.codeGen(rhsMap) + ") begin\n" +
+    thenBody.codeGen(leafState, e, stateInformation, curStateNode, curLevel, lhsMap, rhsMap) +
+    "end\n" +
+    (elseBody match {
+      case Some(x) => "else begin\n" + x.codeGen(leafState, e, stateInformation, curStateNode, curLevel, lhsMap, rhsMap) + "end\n"
+      case None => ""
+    })
+  }
 }
 
 case class Kase(cond: Expr, caseMap: Map[List[String], Command]) extends Statement {
@@ -90,6 +146,23 @@ case class Kase(cond: Expr, caseMap: Map[List[String], Command]) extends Stateme
   
   def fallTransform(state: String) = {
     Kase(cond, caseMap.toList.map((c) => Map(c._1 -> c._2.fallTransform(state))).reduceLeft((a, b) => a ++ b))
+  }
+
+  //find the gotoInformation of each of the bodies and add them up
+  def computeGotoInformation: List[(String, List[String])] = {
+    caseMap.values.toList.foldLeft(List.empty[(String, List[String])])((a: List[(String, List[String])], b: Command) => {
+      a ++ b.computeGotoInformation
+    })
+  }
+
+  def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode, curLevel: Int, lhsMap: Map[String, List[String]], rhsMap: Map[String, String]): String = {
+    "case (" + cond.codeGen(rhsMap) + ")\n" +
+    caseMap.keys.toList.map((k: List[String]) => {
+      k.mkString(", ") + ": begin\n" +
+      caseMap(k).codeGen(leafState, e, stateInformation, curStateNode, curLevel, lhsMap, rhsMap) +
+      "end\n"
+    })
+    "endcase\n"
   }
 }
 
@@ -106,6 +179,23 @@ case class Jump(target: String, argList: List[String]) extends Statement {
     if (substitutedConstraints.forall((x: (SimpleType, SimpleType)) => kappa.isConnected(x._1.level, x._2.level))) CommandType(sourceType)
     else throw new CaissonTypeException("Illegal goto")
   }
+
+  def computeGotoInformation: List[(String, List[String])] = {
+    if (argList.length > 0) List((target, argList))
+    else List.empty[(String, List[String])]
+
+  }
+
+  def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode, curLevel: Int, lhsMap: Map[String, List[String]], rhsMap: Map[String, String]): String = {
+    "cur_state_wout = " + stateInformation(target).defaultLeafID + ";\n" +
+    (if (argList.length > 0) {
+     (stateInformation(target).getGotoInfo match {
+       case Some(l) =>  l._2 + " = " + l._1.indexOf(argList) + ";\n"
+       case None => throw new CaissonCompilerException("Error in generating Jump code")
+    })}
+    else "")
+  }
+
 }
 
 case class Fall(level: Option[String]) extends Statement {
@@ -123,12 +213,61 @@ case class Fall(level: Option[String]) extends Statement {
   }
 
   def fallTransform(state: String) = Fall(Some(state))
+
+  def computeGotoInformation: List[(String, List[String])] = {
+    List.empty[(String, List[String])]
+  }
+
+  def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode, curLevel: Int, lhsMap: Map[String, List[String]], rhsMap: Map[String, String]): String = {
+    /*val correspondingState = level match {
+      case Some(x) => x
+      case None => throw new CaissonCompilerException("Error constructing Fall labels")
+    }*/
+    val pathIndex = stateInformation(leafState).getPathFromRoot match {
+      case Some(x) => x(curLevel)
+      case None => throw new CaissonCompilerException("Error constructing pathFromRoot information")
+    }
+    val fallNode = curStateNode.getChildren match {
+      case Some(x) => x(pathIndex)
+      case None => throw new CaissonCompilerException("Error constructing StateNodes")
+    }
+    val gotoInfo = stateInformation(fallNode.getName).getGotoInfo
+    (gotoInfo match {
+      case Some(x) =>  {
+        val gotoInfoList = x._1
+        val assignmentIndices = x._3.keys.toList
+        val additionalRhsMap = assignmentIndices.foldLeft(Map[String, String]())((a: Map[String, String], b: Int) => {
+          a ++ Map(fallNode.getParams(b) -> x._3(b))})
+        val additionalLhsMap = List.range(0, fallNode.getParams.length).foldLeft(Map[String, List[String]]())((a: Map[String, List[String]], b: Int) => {
+          a ++
+          Map(fallNode.getParams(b) -> (List(x._2) ++ gotoInfoList.map(_(b) + "_wout")))
+        })
+        "case (" + x._2 + ")\n" +
+        List.range(0, gotoInfoList.length).map((i: Int) => {
+          i + ": begin\n" +
+          assignmentIndices.map((j: Int) => {
+            x._3(j) + " = " + rhsMap(gotoInfoList(i)(j)) + ";\n"
+          }).mkString +
+          "end\n"
+        }).mkString + e.functions.command(fallNode.getName).codeGen(leafState, e, stateInformation, fallNode, curLevel + 1, lhsMap ++ additionalLhsMap, rhsMap ++ additionalRhsMap)
+      }
+      case None => e.functions.command(fallNode.getName).codeGen(leafState, e, stateInformation, fallNode, curLevel + 1, lhsMap, rhsMap)
+    })
+   }
 }
 
 case class Skip() extends Statement {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType = CommandType(SimpleType("H")) //implements T-SKIP
 
   def fallTransform(state: String) = this
+
+  def computeGotoInformation: List[(String, List[String])] = {
+    List.empty[(String, List[String])]
+  }
+
+  def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode, curLevel: Int, lhsMap: Map[String, List[String]], rhsMap: Map[String, String]): String = {
+    ";\n"
+  }
 }
 
 sealed abstract class Definition extends CaissonASTNode {
@@ -137,9 +276,14 @@ sealed abstract class Definition extends CaissonASTNode {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType
   def validateAndGetNames: Set[String]
   def validateTypeVars(validTypeVarSet: Set[String]): Set[String]
+  def computePartialStateInfo(pathFromRoot: List[Int]): Map[String, StateInfo]
+  def computeGotoInformation: List[(String, List[String])]
+  def extractStateNodeStructure: Option[List[StateNode]]
 }
 
 case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  extends Definition {
+  def getStateDefList = stateDefList
+
   def computeEnvironment(state: String): Environment = {
     val fcmd = Map(state -> cmd)
     val fdef = Map(state -> stateDefList(0).label)
@@ -171,6 +315,22 @@ case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  ext
       else throw new InvalidProgramException("Repeated type variable names in state definitions")
     })
   }
+
+  def computePartialStateInfo(pathFromRoot: List[Int]): Map[String, StateInfo] = {
+    val numberOfStates = stateDefList.length
+    List.range(0, numberOfStates).foldLeft(Map.empty[String, StateInfo])(
+    (a: Map[String, StateInfo], b: Int) => a ++ stateDefList(b).computePartialStateInfo(pathFromRoot ++ List(b)))
+  }
+
+  def computeGotoInformation: List[(String, List[String])] = {
+    stateDefList.foldLeft(List.empty[(String, List[String])])((a: List[(String, List[String])], b: StateDefinition) => {
+      a ++ b.computeGotoInformation
+    }) ++ cmd.computeGotoInformation
+  }
+
+  def extractStateNodeStructure: Option[List[StateNode]] = {
+    Some(stateDefList.map(_.extractStateNodeStructure))
+  }
 }
 
 case class Command(stmtList: List[Statement]) extends Definition {
@@ -185,10 +345,28 @@ case class Command(stmtList: List[Statement]) extends Definition {
   def validateAndGetNames: Set[String] = Set.empty[String]
 
   def validateTypeVars(validTypeVarsSet: Set[String]): Set[String] = Set.empty[String]
+
+  def countLeafStates: Int = 1
+
+  def computePartialStateInfo(pathFromRoot: List[Int]): Map[String, StateInfo] = Map.empty[String, StateInfo]
+
+  def computeGotoInformation: List[(String, List[String])] = {
+    stmtList.foldLeft(List.empty[(String, List[String])])((a: List[(String, List[String])], b: Statement) => {
+      a ++ b.computeGotoInformation
+    })
+  }
+
+  def extractStateNodeStructure: Option[List[StateNode]] = None
+
+  def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode, curLevel: Int, lhsMap: Map[String, List[String]], rhsMap: Map[String, String]): String = {
+    stmtList.map(_.codeGen(leafState, e, stateInformation, curStateNode, curLevel, lhsMap, rhsMap)).mkString
+  }
 }
 
 class StateDefinition(name: String, secLevel: String, paramAndTypeList: List[(String, String)], constraintList: Option[List[(String,String)]], definition: Definition) {
   def label = name
+
+  def getDefinition = definition
 
   def computeEnvironment(state: String): Environment = {
     val constraints = constraintList match {
@@ -225,6 +403,22 @@ class StateDefinition(name: String, secLevel: String, paramAndTypeList: List[(St
     if(! (typeVarsSet ** validTypeVarsSet).isEmpty) throw new InvalidProgramException("State "+name+" has invalid security level(s)")
     if(! (typeVarsSet ++ validTypeVarsSet).contains(secLevel)) throw new InvalidProgramException("State "+name+" has invalid security level: "+secLevel)
     definition.validateTypeVars(validTypeVarsSet ++ typeVarsSet) ++ typeVarsSet
+  }
+
+  def computePartialStateInfo(pathFromRoot: List[Int]): Map[String, StateInfo] = {
+    val childInfo = definition.computePartialStateInfo(pathFromRoot)
+    val isLeaf = definition.isInstanceOf[Command]
+    val defLeafID = if (isLeaf) Util.leafStateIDGenerator else Util.getDefaultLeafID(definition.asInstanceOf[LetDefinition], childInfo)
+
+    Map(name -> new StateInfo(isLeaf, defLeafID, pathFromRoot)) ++ childInfo
+  }
+
+  def computeGotoInformation: List[(String, List[String])] = {
+    definition.computeGotoInformation
+  }
+
+  def extractStateNodeStructure: StateNode = {
+    new StateNode(name, definition.extractStateNodeStructure, paramAndTypeList.map(_._1))
   }
 }
 
@@ -283,21 +477,23 @@ class DataDeclaration(dStructure: DataStructure, name: String, level: String) {
 
   def getLevel = level
 
-  def genCode = {
-    dStructure.genCode + " " + name + ";" +
-    dStructure.dataType match {
-      case d: Input =>
+  def getDataStructure = dStructure
+
+  def genCode: String = {
+    dStructure.genCode + " " + name + ";\n" +
+    (dStructure.dataType match {
+      case d: Input => ""
       case d: Output => {
         "reg" + dStructure.genDimensionCode + " " + name + "_wout;\n"
       }
       case d: Register => { "wire" + dStructure.genDimensionCode + " " + name + "_win;\n" +
         "reg" + dStructure.genDimensionCode + " " + name + "_wout;\n"
       }
-      case d: Inout =>
-      case d: Imem =>
-      case d: Dmem =>
-      case d: Wire =>
-    }
+      case d: Inout => ""
+      case d: Imem => ""
+      case d: Dmem => ""
+      case d: Wire => ""
+    })
   }
 }
 
@@ -323,15 +519,21 @@ class Program(name: String, params: List[String], decl: List[DataDeclaration], d
     defn.validateTypeVars(validTypeVarSet)
   }
 
-  def codeGen = {
-    //TODO: Create cur_state = log2(total number of leaf nodes)
-    val regNames = decl.filter((x: DataDeclaration) => x.dStructure.isInstanceOf[Register]).map(_.name) ++ List("cur_state")
-    val outNames = decl.filter((x: DataDeclaration) => x.dStructure.isInstanceOf[Output]).map(_.name)
-    //TODO: Use regNames and outNames
+  def codeGen(e: Environment): String = {
+    val regNames = decl.filter((x: DataDeclaration) => x.getDataStructure.dataType.isInstanceOf[Register]).map(_.getName) ++ List("cur_state")
+    val outNames = decl.filter((x: DataDeclaration) => x.getDataStructure.dataType.isInstanceOf[Output]).map(_.getName)
+    val stateInformation = stateInfoMap
+    val leafStates = stateInfoMap.keys.toList.filter(stateInfoMap(_).isLeaf)
+    val numberOfLeafStates = leafStates.length
+    val stateNode = extractStateNodeStructure
+    val leafStateCode = leafStates.map(codeGen(_, e, stateInformation, stateNode)).mkString
+
     "module " + name + "(" + params.mkString(",") + "clk,reset);\n" +
     "input clk; \n" +
     "input reset; \n" +
+    "reg[" + (Util.bitsForRepresenting(numberOfLeafStates) - 1) + ":0] cur_state;\n\n" +
     decl.map((x: DataDeclaration) => x.genCode).mkString +
+    genTempVariableDeclarations(stateInfoMap.values.toList) +
     outNames.map((x: String) => "assign " + x + " = " + x + "_wout;\n").mkString +
     regNames.map((x: String) => "assign " + x + "_win = " + x + ";\n").mkString +
     "\nalways @ (posedge clk)\nbegin\n" +
@@ -342,10 +544,125 @@ class Program(name: String, params: List[String], decl: List[DataDeclaration], d
     "if (reset) begin\n" +
     regNames.map((x: String) => x + "_wout = 0;\n").mkString +
     "end\n" +
-    defn.genCode
+    "else begin\n" +
+    "case (cur_state_win)\n" +
+    leafStateCode +
+    "default: ;\n" +
+    "endcase\n" + // end for leaf state cases
+    "end\n" + //end else
+    "end\n" + //end begin
+    "endmodule"
+  }
+
+  def stateInfoMap: Map[String, StateInfo] =  {
+    val partialStateInfo = defn.computePartialStateInfo(List.empty[Int]) //get isLeaf, defaultLeafID and pathRoot information
+    val gotoInformation = defn.computeGotoInformation
+    val states = partialStateInfo.keys.toList
+    states.foldLeft(Map.empty[String, StateInfo])((a: Map[String, StateInfo], b: String) => {
+      val stateGotoInfo = gotoInformation.filter((x: (String, List[String])) => x._1 == b).map(_._2)
+      val index = states.findIndexOf((s: String) => s == b)
+      a ++ Map(b -> new StateInfo(partialStateInfo(b),
+        if (stateGotoInfo.length > 0)
+          Some((stateGotoInfo, "condition"+index, List.range(0, stateGotoInfo(0).length).foldLeft(Map[Int, String]())((m: Map[Int, String], i: Int) => {
+            m ++
+            (if (decl.exists((d: DataDeclaration) => (d.getName == stateGotoInfo(0)(i)) &&
+            (d.getDataStructure.dataType match {
+              case dt: Register => true
+              case dt: Input => true
+              case _ => false
+            })))
+              Map(i -> (stateGotoInfo.map(_(i)).mkString("_") + "_" + b + "_w"))
+            else
+              Map[Int, String]())
+          })))
+        else None))
+    })
+  }
+
+  def extractStateNodeStructure: StateNode = { //model state structure
+    new StateNode(name, defn.extractStateNodeStructure, List[String]())
+  }
+
+  def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode): String = {
+    val lhsMap = decl.foldLeft(Map[String, List[String]]())((m: Map[String, List[String]], d: DataDeclaration) => {
+      m ++ (d.getDataStructure.dataType match {
+        case dt: Register => Map(d.getName -> List(d.getName + "_wout"))
+        case dt: Output => Map(d.getName -> List(d.getName + "_wout"))
+        case _ => Map(d.getName -> List(d.getName))
+      })
+    })
+    val rhsMap = decl.foldLeft(Map[String, String]())((m: Map[String, String], d: DataDeclaration) => {
+      m ++ (d.getDataStructure.dataType match {
+        case dt: Register => Map(d.getName -> (d.getName + "_win"))
+        case _ => Map(d.getName -> d.getName)
+      })
+    })
+    //val rhsMap
+    stateInformation(leafState).defaultLeafID + ":" + "begin\n" +
+    e.functions.command(name).codeGen(leafState, e, stateInformation, curStateNode, 0, lhsMap, rhsMap) +
+    "end\n"
+  }
+
+  def genTempVariableDeclarations(stateInfoList: List[StateInfo]): String = {
+    stateInfoList.map((s: StateInfo) => {
+      val gotoInfo = s.getGotoInfo
+      gotoInfo match {
+        case Some(x) => ("reg " + x._2 + ";\n" +
+          x._3.keys.toList.map((i: Int) => {
+            decl.find((d: DataDeclaration) => d.getName == x._1(0)(i)) match {
+              case Some(e) => "reg" + e.getDataStructure.genDimensionCode + " " + x._3(i) + ";\n"
+              case None => throw new CaissonCompilerException("Internal Compiler Error: Extra data hanging in compiler structures")
+            }
+          }).mkString)
+        case None => ""
+      }
+    }).mkString
   }
 }
 
 class InvalidProgramException(msg: String) extends Exception{
   def message = msg
 }
+
+class StateNode(name: String, children: Option[List[StateNode]], params: List[String]) {
+  def getName = name
+
+  def getParams = params
+
+  def getChildren = children
+}
+
+//Internal data structure for the compiler's code generator
+class StateInfo(izLeaf: Boolean, defLeafID: Int, pathFromRoot: Option[List[Int]], gotoInfo: Option[(List[List[String]], String, Map[Int, String])]) {
+  def this(a: Boolean, b: Int, c: List[Int]) = this(a, b, Some(c), None) //helper constructor
+
+  def this(a: StateInfo, b: Option[(List[List[String]], String, Map[Int, String])]) = this(a.isLeaf, a.defaultLeafID, a.getPathFromRoot, b) //helper constructor
+
+  def isLeaf = izLeaf //is a leaf state?
+
+  def defaultLeafID = defLeafID //ID of the leaf state when you "goto" this state
+
+  def getPathFromRoot = pathFromRoot
+
+  def getGotoInfo = gotoInfo //Information from all goto sites to this state
+}
+
+class CaissonCompilerException(msg: String) extends Exception {
+  def message: String = msg
+}
+
+/*class VariableInformation(registerS: Set[String], inputS: Set[String], outputS: Set[String], wireS: Set[String], inoutS: Set[String], imemS: Set[String], dmemS: Set[String]) {
+  def registers = registerS
+
+  def inputs = inputS
+
+  def outputs = outputS
+
+  def wires = wireS
+
+  def inouts = inoutS
+
+  def imems = imemS
+
+  def dmems = dmemS
+}*/

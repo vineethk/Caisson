@@ -1,4 +1,6 @@
 object Util {
+  var leafStateIDCounter = -1
+
   def substituteConstraints(cl: List[(SimpleType, SimpleType)], subs: Map[String, SimpleType]): List[(SimpleType, SimpleType)] = {
     cl.map(e => (substituteType(e._1, subs), substituteType(e._2, subs)))
   }
@@ -18,5 +20,19 @@ object Util {
     constraints.foreach(c => kappa.addEdge(c._1.level, c._2.level))
     if (kappa.isConsistent) kappa
     else throw new CaissonTypeException("Inconsistent type constraints specification")
-  }  
+  }
+
+  def bitsForRepresenting(x: Int) = math.round(math.ceil(math.log(x)/math.log(2)))
+
+  def leafStateIDGenerator: Int = {
+    leafStateIDCounter += 1
+    leafStateIDCounter
+  }
+
+  def getDefaultLeafID(letdefn: LetDefinition, stateInfo: Map[String, StateInfo]): Int = {
+    val firstChild = letdefn.getStateDefList(0)
+    val firstChildStateInfo = stateInfo(firstChild.label)
+    if (firstChildStateInfo.isLeaf) firstChildStateInfo.defaultLeafID
+    else getDefaultLeafID(firstChild.getDefinition.asInstanceOf[LetDefinition], stateInfo)
+  }
 }

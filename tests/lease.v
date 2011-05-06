@@ -71,7 +71,7 @@ begin
 						else begin
 							mode_wout = 0;
 							temp2_wout = 0;
-							cur_state_wout = 2;
+							cur_state_wout = 1;
 							condition1 = 1;							
 						end
 					end
