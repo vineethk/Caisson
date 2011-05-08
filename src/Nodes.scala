@@ -249,7 +249,9 @@ case class Fall(level: Option[String]) extends Statement {
             x._3(j) + " = " + rhsMap(gotoInfoList(i)(j)) + ";\n"
           }).mkString +
           "end\n"
-        }).mkString + e.functions.command(fallNode.getName).codeGen(leafState, e, stateInformation, fallNode, curLevel + 1, lhsMap ++ additionalLhsMap, rhsMap ++ additionalRhsMap)
+        }).mkString +
+        "endcase\n" +
+        e.functions.command(fallNode.getName).codeGen(leafState, e, stateInformation, fallNode, curLevel + 1, lhsMap ++ additionalLhsMap, rhsMap ++ additionalRhsMap)
       }
       case None => e.functions.command(fallNode.getName).codeGen(leafState, e, stateInformation, fallNode, curLevel + 1, lhsMap, rhsMap)
     })
