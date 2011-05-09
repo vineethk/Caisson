@@ -529,11 +529,14 @@ class Program(name: String, params: List[String], decl: List[DataDeclaration], d
     val numberOfLeafStates = leafStates.length
     val stateNode = extractStateNodeStructure
     val leafStateCode = leafStates.map(codeGen(_, e, stateInformation, stateNode)).mkString
+    val curStateDimension = "[" + (Util.bitsForRepresenting(numberOfLeafStates) - 1) + ":0]"
 
-    "module " + name + "(" + params.mkString(",") + "clk,reset);\n" +
+    "module " + name + "(" + (params ++ List("clk", "reset")).mkString(",") + ");\n" +
     "input clk; \n" +
     "input reset; \n" +
-    "reg[" + (Util.bitsForRepresenting(numberOfLeafStates) - 1) + ":0] cur_state;\n\n" +
+    "reg" + curStateDimension + " cur_state;\n" +
+    "wire" + curStateDimension + " cur_state_win;\n" +
+    "reg" + curStateDimension + " cur_state_wout;\n" +
     decl.map((x: DataDeclaration) => x.genCode).mkString +
     genTempVariableDeclarations(stateInfoMap.values.toList) +
     outNames.map((x: String) => "assign " + x + " = " + x + "_wout;\n").mkString +
