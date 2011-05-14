@@ -9,6 +9,8 @@ in
 let state master:L() = {
     if timer>0 then {
 	local_timer := timer;
+	out1 := 0;
+	out2 := 0;
     	if mode==0 then {
        		mode := 1;
        		temp1 := 0;
@@ -30,7 +32,8 @@ state group:L(data:A,temp:A,out:A)[L<A] = {
 	else { temp := temp + 2; goto S2(); }
     }
     in
-        if local_timer == 0 then { out := temp; goto master(); } 
+    	out := temp;
+        if local_timer == 0 then { goto master(); } 
 	else { local_timer := local_timer - 1; fall; }
 }
 in fall;
