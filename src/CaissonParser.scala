@@ -7,6 +7,8 @@
 import scala.util.parsing.combinator._
 
 class CaissonParser extends RegexParsers {
+    protected override val whiteSpace = """(\s|//.*|(?m)/\*(\*(?!/)|[^*])*\*/)+""".r
+
     def prog: Parser[Program] = "prog"~>ident~"("~repsep(ident, ",")~")"~"="~declarations~"in"~definition ^^ {case name~"("~params~")"~"="~decl~"in"~defn => 
                                                                                                                 new Program(name, params, decl, defn)}
     
