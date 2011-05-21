@@ -7,8 +7,8 @@ reg[31:0] timer_l:L;
 reg[31:0] timer_h:H;
 reg timer_on_l:L;
 
-reg[31:0] regfile_l:L;
-reg[31:0] regfile_h:H;
+reg[31:0] regfile_l[31:0]:L;
+reg[31:0] regfile_h[31:0]:H;
 
 reg[10:0] pc_l:L;
 reg[10:0] pc_h:H;
@@ -19,10 +19,10 @@ reg[10:0] targetPC_h:H;
 reg[10:0] returnPC_l:L;
 reg[10:0] returnPC_h:H;
 
-reg[255:0] inst_mem_l:L;
-reg[255:0] inst_mem_h:H;
-reg[2047:0] data_mem_l:L;
-reg[2047:0] data_mem_h:H;
+reg[255:0] inst_mem_l[31:0]:L;
+reg[255:0] inst_mem_h[31:0]:H;
+reg[2047:0] data_mem_l[31:0]:L;
+reg[2047:0] data_mem_h[31:0]:H;
 
 reg[31:0] inst_fd_l:L;
 reg[31:0] inst_fd_h:H;
@@ -69,7 +69,7 @@ let state root:L() = {
 	
 	state cpu:L() = {
 		let state master:L() = {
-			if timer_l==0 then {
+			if timer_l>0 then {
 				mode := 1;		
 				timer_on_l := 1;
 				pc_h := targetPC_l;
@@ -86,60 +86,36 @@ let state root:L() = {
 			let state pipeline:A() = {
 				inst_fd := inst_mem[pc];
 				
-				reg1 := regfile[inst_fd];
-				reg2 := regfile[inst_fd];
+				reg1 := regfile[inst_fd[25:21]];
+				reg2 := regfile[inst_fd[25:21]];
 				reg3 := 0;
 				mem_read := 0;
 				mem_write := 0;
 				
-				case (inst_fd) {
+				case (inst_fd[31:26]) {
 					12'b100000000000:  
 					{
 						reg3 := reg1 + reg2;
 					}
-					12'b110000000000:  
-					{
-						reg3 := reg1 - reg2;
-					}	
-					12'b111000000000:  
-					{
-						reg3 := reg1 >> reg2;
-					}	
-					12'b111100000000:  
-					{
-						reg3 := reg1 << reg2;
-					}
-					12'b111110000000:  
-					{
-						reg3 := reg1 & reg2;
-					}	
-					12'b111111000000:  
-					{
-						reg3 := reg1 | reg2;
-					}	
 					12'b111111100000:  
 					{
 						reg3 := ~reg1;
 					}	
 					12'b010000000000:  
 					{
-						dmem_addr := regfile[inst_fd];	
+						dmem_addr := regfile[inst_fd[10:0]];	
 						mem_read := 1;		
 					}
 					12'b001000000000:  
 					{		
-						store_val := regfile[inst_fd];
-						dmem_addr := regfile[inst_fd];	  
+						store_val := reg1;
+						dmem_addr := regfile[inst_fd[10:0]];	  
 						mem_write := 1;
 					}
 					12'b011000000000:  
 					{
-						reg3 := inst_fd;
-					}
-					12'b000100000000:  
-					{
-						reg3 := regfile[inst_fd];
-					}	
+						reg3 := inst_fd[15:0];
+					}					
 					default:
 					{
 						skip;
@@ -172,16 +148,16 @@ let state root:L() = {
 					}
 					12'b000100000000:        							 
 					{
-						if regfile[inst_mw] == 0 then {
+						if regfile[inst_mw[25:21]] == 0 then {
 							pc := alu;
 						}
 					}
 					12'b000010000000:  
 					{
 						if mode == 0 then {
-							timer := regfile[inst_mw];	
-							targetPC := regfile[inst_mw];
-							returnPC := pc[11'b1];
+							timer := regfile[inst_mw[25:21]];	
+							targetPC := regfile[inst_mw[20:16]];
+							returnPC := pc;
 						}
 					}
 					default:
