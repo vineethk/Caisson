@@ -65,7 +65,7 @@ sealed abstract class Statement extends CaissonASTNode {
   def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode, curLevel: Int, lhsMap: Map[String, List[String]], rhsMap: Map[String, String]): String
   def validateGotos(allowedLabels: Set[String]) { } //default behaviour for all Statements: always pass the check (overriden for a few of Statement types: goto, if, case etc)
   def hasFallOrGoto(): Boolean = false
-  def endsWithFallOrGoto(): Boolean = false
+  def endsWithFallOrGoto(isLeaf: Boolean): Boolean = false
 }
 
 case class Assignment(lvalue: String, rvalue: Expr) extends Statement {
@@ -153,9 +153,9 @@ case class Branch(cond: Expr, thenBody: Command, elseBody: Option[Command]) exte
     } )
   }
 
-  override def endsWithFallOrGoto(): Boolean = {
-    thenBody.endsWithFallOrGoto() && ( elseBody match {
-      case Some(x) => x.endsWithFallOrGoto()
+  override def endsWithFallOrGoto(isLeaf: Boolean): Boolean = {
+    thenBody.endsWithFallOrGoto(isLeaf) && ( elseBody match {
+      case Some(x) => x.endsWithFallOrGoto(isLeaf)
       case None => false
     } )
   }
@@ -187,7 +187,7 @@ case class Kase(cond: Expr, caseMap: Map[List[String], Command]) extends Stateme
       k.mkString(", ") + ": begin\n" +
       caseMap(k).codeGen(leafState, e, stateInformation, curStateNode, curLevel, lhsMap, rhsMap) +
       "end\n"
-    })
+    }).mkString +
     "endcase\n"
   }
 
@@ -200,8 +200,8 @@ case class Kase(cond: Expr, caseMap: Map[List[String], Command]) extends Stateme
     caseMap.values.exists(_.hasFallOrGoto())
   }
 
-  override def endsWithFallOrGoto(): Boolean = {
-    caseMap.values.forall((c: Command) => c.endsWithFallOrGoto())
+  override def endsWithFallOrGoto(isLeaf: Boolean): Boolean = {
+    caseMap.values.forall((c: Command) => c.endsWithFallOrGoto(isLeaf))
   }
 }
 
@@ -241,7 +241,7 @@ case class Jump(target: String, argList: List[String]) extends Statement {
 
   override def hasFallOrGoto() = true
 
-  override def endsWithFallOrGoto() = true
+  override def endsWithFallOrGoto(isLeaf: Boolean) = true
 
 }
 
@@ -306,7 +306,7 @@ case class Fall(level: Option[String]) extends Statement {
 
   override def hasFallOrGoto() = true
 
-  override def endsWithFallOrGoto() = true
+  override def endsWithFallOrGoto(isLeaf: Boolean) = !isLeaf //if it is a leaf state, then it should not have fall
 }
 
 case class Skip() extends Statement {
@@ -334,7 +334,7 @@ sealed abstract class Definition extends CaissonASTNode {
   def extractStateNodeStructure: Option[List[StateNode]]
   def validateDefaultStateAssumption(): Unit
   def validateGotos(allowedLabels: Set[String]): Unit
-  def validateFallsAndGotos(): Unit
+  def validateFallsAndGotos(isLeaf: Boolean): Unit
 }
 
 case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  extends Definition {
@@ -402,9 +402,9 @@ case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  ext
     stateDefList.foreach(_.validateGotos(collectedLabels))
   }
 
-  def validateFallsAndGotos() {
-    stateDefList.foreach(_.validateFallsAndGotos()) //check if the all statements have valid falls and gotos
-    cmd.validateFallsAndGotos() //check if the command has well formed falls and gotos
+  def validateFallsAndGotos(isLeaf: Boolean) {
+    stateDefList.foreach(_.validateFallsAndGotos()) //check if the all states have valid falls and gotos
+    cmd.validateFallsAndGotos(isLeaf) //check if the command has well formed falls and gotos
   }
 }
 
@@ -443,21 +443,21 @@ case class Command(stmtList: List[Statement]) extends Definition {
     stmtList.last.validateGotos(allowedLabels)
   }
 
-  def validateFallsAndGotos() {
+  def validateFallsAndGotos(isLeaf: Boolean) {
     //make sure there is at least one statement
     if (stmtList.length < 1) throw new ValidationException("A command should contain at least one statement")
     //1. make sure none except the last Statement in the list have goto or fall
     if (stmtList.init.exists(_.hasFallOrGoto)) throw new ValidationException("Fall or goto can only be used as the last statement in a path, deadcode found")
     //2. make sure the last Statement has either a goto or a fall
-    if (!stmtList.last.endsWithFallOrGoto) throw new ValidationException("All paths must end with fall or goto: "+stmtList.last)
+    if (!stmtList.last.endsWithFallOrGoto(isLeaf)) throw new ValidationException("All paths in a state must end with either fall or goto, and leaf states cant end in fall: "+stmtList.last)
   }
 
   def hasFallOrGoto(): Boolean = {
     stmtList.exists(_.hasFallOrGoto()) //has a goto or a fall if any of its constituent statements do
   }
 
-  def endsWithFallOrGoto(): Boolean = {
-    stmtList.last.endsWithFallOrGoto() //ends with a fall or goto if the last statement ends with fall or goto
+  def endsWithFallOrGoto(isLeaf: Boolean): Boolean = {
+    stmtList.last.endsWithFallOrGoto(isLeaf) //ends with a fall or goto if the last statement ends with fall or goto
   }
 }
 
@@ -530,7 +530,7 @@ class StateDefinition(name: String, secLevel: String, paramAndTypeList: List[(St
   }
 
   def validateFallsAndGotos() {
-    definition.validateFallsAndGotos()
+    definition.validateFallsAndGotos(isLeaf = definition.isInstanceOf[Command])
   }
 }
 
@@ -743,8 +743,9 @@ class Program(name: String, params: List[String], decl: List[DataDeclaration], d
   }
 
   def validateFallsAndGotos() {
-    defn.validateFallsAndGotos()
+    defn.validateFallsAndGotos(isLeaf = defn.isInstanceOf[Command])
   }
+
 }
 
 class InvalidProgramException(msg: String) extends Exception{
