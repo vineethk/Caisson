@@ -21,6 +21,9 @@ let state master:L() = {
        		goto group(data2,temp2,out2);
    	}
     }
+    else {
+	    goto master();
+    }
 }
 state group:L(data:A,temp:A,out:A)[L<A] = {
     let state S1:A() = {
