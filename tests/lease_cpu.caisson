@@ -165,6 +165,7 @@ let state root:L() = {
 						skip;
 					}
 				}
+				goto pipeline();
 			}
 			in
 				if timer_on_l then {
@@ -178,6 +179,9 @@ let state root:L() = {
 				} else {
 					if timer_l>0 then {
 						goto master();
+					}
+					else {
+						fall;
 					}
 				}
 		}
