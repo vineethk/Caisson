@@ -63,6 +63,9 @@ sealed abstract class Statement extends CaissonASTNode {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType
   def computeGotoInformation: List[(String, List[String])]
   def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode, curLevel: Int, lhsMap: Map[String, List[String]], rhsMap: Map[String, String]): String
+  def validateGotos(allowedLabels: Set[String]) { } //default behaviour for all Statements: always pass the check (overriden for a few of Statement types: goto, if, case etc)
+  def hasFallOrGoto(): Boolean = false
+  def endsWithFallOrGoto(): Boolean = false
 }
 
 case class Assignment(lvalue: String, rvalue: Expr) extends Statement {
@@ -133,6 +136,29 @@ case class Branch(cond: Expr, thenBody: Command, elseBody: Option[Command]) exte
       case None => ""
     })
   }
+
+  override def validateGotos(allowedLabels: Set[String]) {
+    //check the else and then branches for goto labels in the allowed set
+    thenBody.validateGotos(allowedLabels)
+    elseBody match {
+      case Some(x) => x.validateGotos(allowedLabels)
+      case _ => ; //if there is no else, dont do anything
+    }
+  }
+
+  override def hasFallOrGoto() = {
+    thenBody.hasFallOrGoto || ( elseBody match {
+      case Some(x) => x.hasFallOrGoto()
+      case None => false
+    } )
+  }
+
+  override def endsWithFallOrGoto(): Boolean = {
+    thenBody.endsWithFallOrGoto() && ( elseBody match {
+      case Some(x) => x.endsWithFallOrGoto()
+      case None => false
+    } )
+  }
 }
 
 case class Kase(cond: Expr, caseMap: Map[List[String], Command]) extends Statement {
@@ -163,6 +189,19 @@ case class Kase(cond: Expr, caseMap: Map[List[String], Command]) extends Stateme
       "end\n"
     })
     "endcase\n"
+  }
+
+  override def validateGotos(allowedLabels: Set[String]) {
+    //go through each of the case commands and check if they have valid gotos
+    caseMap.values.foreach(_.validateGotos(allowedLabels))
+  }
+
+  override def hasFallOrGoto() = {
+    caseMap.values.exists(_.hasFallOrGoto())
+  }
+
+  override def endsWithFallOrGoto(): Boolean = {
+    caseMap.values.forall((c: Command) => c.endsWithFallOrGoto())
   }
 }
 
@@ -195,6 +234,14 @@ case class Jump(target: String, argList: List[String]) extends Statement {
     })}
     else "")
   }
+
+  override def validateGotos(allowedLabels: Set[String]) {
+    if (! allowedLabels.contains(target)) throw new ValidationException("Invalid goto, state "+target+" is not at the same level and group" )
+  }
+
+  override def hasFallOrGoto() = true
+
+  override def endsWithFallOrGoto() = true
 
 }
 
@@ -256,6 +303,10 @@ case class Fall(level: Option[String]) extends Statement {
       case None => e.functions.command(fallNode.getName).codeGen(leafState, e, stateInformation, fallNode, curLevel + 1, lhsMap, rhsMap)
     })
    }
+
+  override def hasFallOrGoto() = true
+
+  override def endsWithFallOrGoto() = true
 }
 
 case class Skip() extends Statement {
@@ -281,6 +332,9 @@ sealed abstract class Definition extends CaissonASTNode {
   def computePartialStateInfo(pathFromRoot: List[Int]): Map[String, StateInfo]
   def computeGotoInformation: List[(String, List[String])]
   def extractStateNodeStructure: Option[List[StateNode]]
+  def validateDefaultStateAssumption(): Unit
+  def validateGotos(allowedLabels: Set[String]): Unit
+  def validateFallsAndGotos(): Unit
 }
 
 case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  extends Definition {
@@ -333,6 +387,25 @@ case class LetDefinition(stateDefList: List[StateDefinition], cmd: Command)  ext
   def extractStateNodeStructure: Option[List[StateNode]] = {
     Some(stateDefList.map(_.extractStateNodeStructure))
   }
+
+  def validateDefaultStateAssumption() {
+    if (stateDefList.length < 1) throw new ValidationException("let definition does not define anything")
+    //check that the default state does not take any parameters
+    if (!stateDefList(0).doesNotTakeParams) throw new ValidationException("let definition does not define anything")
+    stateDefList.foreach(_.validateDefaultStateAssumption()) //check this recursively on all defined states
+  }
+
+  def validateGotos(allowedLabels: Set[String]) {
+    cmd.validateGotos(allowedLabels) //first check the command for correct gotos
+    //then check each of the state definitions for correct gotos, assuming the new set of allowed labels
+    val collectedLabels = stateDefList.map(_.label).toSet
+    stateDefList.foreach(_.validateGotos(collectedLabels))
+  }
+
+  def validateFallsAndGotos() {
+    stateDefList.foreach(_.validateFallsAndGotos()) //check if the all statements have valid falls and gotos
+    cmd.validateFallsAndGotos() //check if the command has well formed falls and gotos
+  }
 }
 
 case class Command(stmtList: List[Statement]) extends Definition {
@@ -363,12 +436,37 @@ case class Command(stmtList: List[Statement]) extends Definition {
   def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode, curLevel: Int, lhsMap: Map[String, List[String]], rhsMap: Map[String, String]): String = {
     stmtList.map(_.codeGen(leafState, e, stateInformation, curStateNode, curLevel, lhsMap, rhsMap)).mkString
   }
+
+  def validateDefaultStateAssumption() { } // always valid (hence cannot throw an Exception), because it cannot contain a default state definition
+
+  def validateGotos(allowedLabels: Set[String]) {
+    stmtList.last.validateGotos(allowedLabels)
+  }
+
+  def validateFallsAndGotos() {
+    //make sure there is at least one statement
+    if (stmtList.length < 1) throw new ValidationException("A command should contain at least one statement")
+    //1. make sure none except the last Statement in the list have goto or fall
+    if (stmtList.init.exists(_.hasFallOrGoto)) throw new ValidationException("Fall or goto can only be used as the last statement in a path, deadcode found")
+    //2. make sure the last Statement has either a goto or a fall
+    if (!stmtList.last.endsWithFallOrGoto) throw new ValidationException("All paths must end with fall or goto: "+stmtList.last)
+  }
+
+  def hasFallOrGoto(): Boolean = {
+    stmtList.exists(_.hasFallOrGoto()) //has a goto or a fall if any of its constituent statements do
+  }
+
+  def endsWithFallOrGoto(): Boolean = {
+    stmtList.last.endsWithFallOrGoto() //ends with a fall or goto if the last statement ends with fall or goto
+  }
 }
 
 class StateDefinition(name: String, secLevel: String, paramAndTypeList: List[(String, String)], constraintList: Option[List[(String,String)]], definition: Definition) {
   def label = name
 
   def getDefinition = definition
+
+  def doesNotTakeParams: Boolean = (paramAndTypeList.length == 0)
 
   def computeEnvironment(state: String): Environment = {
     val constraints = constraintList match {
@@ -421,6 +519,18 @@ class StateDefinition(name: String, secLevel: String, paramAndTypeList: List[(St
 
   def extractStateNodeStructure: StateNode = {
     new StateNode(name, definition.extractStateNodeStructure, paramAndTypeList.map(_._1))
+  }
+
+  def validateDefaultStateAssumption() {
+    definition.validateDefaultStateAssumption()
+  }
+
+  def validateGotos(allowedLabels: Set[String]) {
+    definition.validateGotos(allowedLabels)
+  }
+
+  def validateFallsAndGotos() {
+    definition.validateFallsAndGotos()
   }
 }
 
@@ -623,6 +733,18 @@ class Program(name: String, params: List[String], decl: List[DataDeclaration], d
       }
     }).mkString
   }
+
+  def validateDefaultStateAssumption() {
+    defn.validateDefaultStateAssumption()
+  }
+
+  def validateGotos() {
+    defn.validateGotos(Set.empty[String])
+  }
+
+  def validateFallsAndGotos() {
+    defn.validateFallsAndGotos()
+  }
 }
 
 class InvalidProgramException(msg: String) extends Exception{
@@ -656,6 +778,9 @@ class CaissonCompilerException(msg: String) extends Exception {
   def message: String = msg
 }
 
+class ValidationException(msg: String) extends Exception {
+  def message: String = msg
+}
 /*class VariableInformation(registerS: Set[String], inputS: Set[String], outputS: Set[String], wireS: Set[String], inoutS: Set[String], imemS: Set[String], dmemS: Set[String]) {
   def registers = registerS
 
