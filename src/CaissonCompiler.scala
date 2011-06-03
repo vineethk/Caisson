@@ -1,3 +1,10 @@
+/*
+  Please refer to licensing information in LICENSE.txt
+  Author: Vineeth Kashyap
+  Email: vineeth@cs.ucsb.edu
+  This is the main file for executing the compiler.
+*/
+
 import java.io.FileReader
 
 object CaissonCompiler {

@@ -1,3 +1,10 @@
+/*
+  Please refer to licensing information in LICENSE.txt
+  Author: Vineeth Kashyap
+  Email: vineeth@cs.ucsb.edu
+  This file defines Lattice and some operations on it.
+*/
+
 import scala.collection.mutable
 
 class DirectedLatticeGraph {

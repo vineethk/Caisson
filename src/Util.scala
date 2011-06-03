@@ -1,3 +1,10 @@
+/*
+  Please refer to licensing information in LICENSE.txt
+  Author: Vineeth Kashyap
+  Email: vineeth@cs.ucsb.edu
+  This file has some utility functions.
+*/
+
 object Util {
   var leafStateIDCounter = -1
 

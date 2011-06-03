@@ -1,4 +1,5 @@
 /*
+  Please refer to licensing information in LICENSE.txt
   Author: Vineeth Kashyap
   Email: vineeth@cs.ucsb.edu
   This file defines the Abstract Syntax Tree for Caisson Programs. Along with it, different transformations, type checkers, validators are also defined.
@@ -51,7 +52,11 @@ case class ArrayExpr(name: Variable, dimension1: Expr, dimension2: Option[Expr])
   }
 
   def codeGen(rhsMap: Map[String, String]): String = {
-    name.codeGen(rhsMap) + "[" + dimension1.codeGen(rhsMap) + "]" + (dimension2 match {
+    name.codeGen(rhsMap) + dimensionCodeGen(rhsMap)
+  }
+
+  def dimensionCodeGen(rhsMap: Map[String, String]): String = {
+    "[" + dimension1.codeGen(rhsMap) + "]" + (dimension2 match {
       case Some(x) => "[" + x.codeGen(rhsMap) + "]"
       case None => ""
     })
@@ -68,12 +73,32 @@ sealed abstract class Statement extends CaissonASTNode {
   def endsWithFallOrGoto(isLeaf: Boolean): Boolean = false
 }
 
-case class Assignment(lvalue: String, rvalue: Expr) extends Statement {
+case class Assignment(lvalue: Expr, rvalue: Expr) extends Statement {
   def caissonType(env: Environment, kappa: DirectedLatticeGraph): CommandType = { //implements T-ASSIGN
-    assert(env.typeMap(lvalue).isInstanceOf[SimpleType])
-    val lvalueType = env.typeMap(lvalue).asInstanceOf[SimpleType]
-    if (kappa.isConnected(rvalue.caissonType(env, kappa).level, lvalueType.level)) CommandType(lvalueType)
-    else throw new CaissonTypeException("Cannot perform assignment to "+lvalue+": Incompatible value on right hand side")
+    val rvalueType = rvalue.caissonType(env, kappa)
+    lvalue match {
+      case Variable(name) => {
+        assert(env.typeMap(name).isInstanceOf[SimpleType])
+        val lvalueType = env.typeMap(name).asInstanceOf[SimpleType]
+        if (kappa.isConnected(rvalueType.level, lvalueType.level)) CommandType(lvalueType)
+        else throw new CaissonTypeException("Cannot perform assignment to "+name+": Incompatible value on right hand side")
+      }
+      case ArrayExpr(Variable(name), dim1, dim2) => {
+        assert(env.typeMap(name).isInstanceOf[SimpleType])
+        val arrayType = env.typeMap(name).asInstanceOf[SimpleType]
+        val dim1Type = dim1.caissonType(env, kappa)
+        val dim2Type = dim2 match {
+          case Some(e) => e.caissonType(env, kappa)
+          case None => SimpleType("L")
+        }
+        val dimType = TypeUtil.join(kappa, dim1Type, dim2Type)
+        if (!kappa.isConnected(dimType.level, arrayType.level))
+          throw new CaissonTypeException("Cannot perform assignment to "+name+": Insecure indexing while assignment")
+        if (kappa.isConnected(rvalueType.level, arrayType.level)) CommandType(arrayType)
+        else throw new CaissonTypeException("Cannot perform assignment to "+name+": Incompatible value on right hand side")
+      }
+      case _ => throw new CaissonCompilerException("lvalue can only be variable or array index, error in compiler internal representation")
+    }
   }
 
   def fallTransform(state: String) = this
@@ -82,15 +107,27 @@ case class Assignment(lvalue: String, rvalue: Expr) extends Statement {
     List.empty[(String, List[String])]
   }
 
+  def getLValueName: String = lvalue match {
+    case Variable(name) => name
+    case ArrayExpr(Variable(name), _, _) => name
+    case _ => throw new CaissonCompilerException("lvalue can only be variable or array index, error in compiler internal representation")
+  }
+
+  def LhsDimensionCode(rhsMap: Map[String, String]): String = lvalue match {
+    case v: Variable => ""
+    case a: ArrayExpr => a.dimensionCodeGen(rhsMap)
+    case _ => throw new CaissonCompilerException("lvalue can only be variable or array index, error in compiler internal representation")
+  }
+
   def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode, curLevel: Int, lhsMap: Map[String, List[String]], rhsMap: Map[String, String]): String = {
-    val lhs = lhsMap(lvalue)
+    val lhs = lhsMap(getLValueName)
     val rhs = rvalue.codeGen(rhsMap)
-    if (lhs.length == 1) lhs(0) + " = " + rhs  + ";\n"
+    if (lhs.length == 1) lhs(0) + LhsDimensionCode(rhsMap)  + " = " + rhs  + ";\n"
     else {
-      "case (" + lhs(0) + ")\n" +
+      "case (" + lhs(0) + LhsDimensionCode(rhsMap) + ")\n" +
       List.range(0, (lhs.length-1)).map((i: Int) => {
         i + ": begin\n" +
-        lhs(i+1) + " = " + rhs + ";\n" +
+        lhs(i+1) + LhsDimensionCode(rhsMap)  + " = " + rhs + ";\n" +
         "end\n"
       }).mkString +
       "endcase\n"

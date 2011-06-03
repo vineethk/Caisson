@@ -1,3 +1,10 @@
+/*
+  Please refer to licensing information in LICENSE.txt
+  Author: Vineeth Kashyap
+  Email: vineeth@cs.ucsb.edu
+  This file has implementations of Types for Caisson.
+*/
+
 sealed abstract class CaissonType {
   def level: Any
 }
@@ -22,14 +29,14 @@ class CaissonTypeException(msg: String) extends Exception {
 
 object TypeUtil {
   def meet(kappa: DirectedLatticeGraph, left: SimpleType, right: SimpleType): SimpleType = { //implement this for a general lattice
-    if (kappa.isConnected(left.level, right.level)) right
-    else if (kappa.isConnected(right.level, left.level)) left
+    if (kappa.isConnected(left.level, right.level)) left
+    else if (kappa.isConnected(right.level, left.level)) right
     else throw new CaissonTypeException("Incompatible types "+left.level+" and "+right.level)
   }
 
   def join(kappa: DirectedLatticeGraph, left: SimpleType, right: SimpleType): SimpleType = {
-    if (kappa.isConnected(left.level, right.level)) left
-    else if (kappa.isConnected(right.level, left.level)) right
+    if (kappa.isConnected(left.level, right.level)) right
+    else if (kappa.isConnected(right.level, left.level)) left
     else throw new CaissonTypeException("Incompatible types "+left.level+" and "+right.level)
   }
 }

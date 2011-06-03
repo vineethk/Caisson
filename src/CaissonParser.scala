@@ -1,7 +1,8 @@
 /*
+  Please refer to licensing information in LICENSE.txt
   Author: Vineeth Kashyap
   Email: vineeth@cs.ucsb.edu
-  In this file, the parser-combinator for Caisson is specified
+  In this file, the parser-combinator for Caisson is specified.
 */
 
 import scala.util.parsing.combinator._
@@ -46,7 +47,7 @@ class CaissonParser extends RegexParsers {
     
     def statement: Parser[Statement] = assignment | branch | jump | "fall" ^^ (_ => Fall(None)) | "skip" ^^ (_ => Skip()) | kase
     
-    def assignment: Parser[Assignment] = ident~":="~expr ^^ { case lv~":="~rv => Assignment(lv, rv) }
+    def assignment: Parser[Assignment] = lvalue~":="~expr ^^ { case lv~":="~rv => Assignment(lv, rv) }
 
     def expr: Parser[Expr] = ( arithExpr~condOp~arithExpr ^^ { case left~op~right => ComplexExpr(left, right, op) }
                                 | "("~>arithExpr~condOp~arithExpr<~")" ^^ { case left~op~right => ComplexExpr(left, right, op) }
@@ -86,6 +87,9 @@ class CaissonParser extends RegexParsers {
     def jump: Parser[Jump] =  "goto"~>ident~"("~repsep(ident, ",")<~")" ^^ { case target~"("~varList => Jump(target, varList) }
     
     def verilogNumber: Parser[String] = (binaryNumber | floatingPointNumber)
+
+    def lvalue: Parser[Expr] = ( ident~arrayIndexing~opt(arrayIndexing) ^^ { case a~e1~e2 => ArrayExpr(Variable(a), e1, e2) }
+                               | ident ^^ (Variable) )
 
     def ident: Parser[String] = """[a-zA-Z_]\w*""".r
     

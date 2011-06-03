@@ -1,3 +1,10 @@
+/*
+  Please refer to licensing information in LICENSE.txt
+  Author: Vineeth Kashyap
+  Email: vineeth@cs.ucsb.edu
+  This file describes the environment that is passed around for type checking.
+*/
+
 class Environment(tm: Map[String, CaissonType], fm: FunctionMapping) {
   def typeMap: Map[String, CaissonType]  = tm
   def functions: FunctionMapping = fm
