@@ -1,3 +1,6 @@
+Please refer to our technical publication: "Caisson: A Hardware Description Language for Secure Information Flow", by
+Xun Li, Mohit Tiwari, Jason Oberg, Frederic T. Chong, Timothy Sherwood, Ben Hardekopf, published in the 32nd ACM Conference on Programming Language Design and Implementation (PLDI) June 2011, San Jose, California to understand more about this project. 
+
 You need to have a Scala compiler [version 2.8.1 or newer] to be able to compile the source. This is how you would get the compiler running:
 1. Compile the source code: 
   $ scalac src/*.scala
