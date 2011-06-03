@@ -5,8 +5,8 @@
   This file defines the Abstract Syntax Tree for Caisson Programs. Along with it, different transformations, type checkers, validators are also defined.
  */
  
-sealed abstract class CaissonASTNode {
-  def caissonType(env: Environment, kappa: DirectedLatticeGraph): CaissonType
+sealed abstract class CaissonASTNode { //all AST Nodes inherit from these
+  def caissonType(env: Environment, kappa: DirectedLatticeGraph): CaissonType //one should be able to type any AST Node
 }
 
 sealed abstract class Expr extends CaissonASTNode {
@@ -303,10 +303,6 @@ case class Fall(level: Option[String]) extends Statement {
   }
 
   def codeGen(leafState: String, e: Environment, stateInformation: Map[String, StateInfo],  curStateNode: StateNode, curLevel: Int, lhsMap: Map[String, List[String]], rhsMap: Map[String, String]): String = {
-    /*val correspondingState = level match {
-      case Some(x) => x
-      case None => throw new CaissonCompilerException("Error constructing Fall labels")
-    }*/
     val pathIndex = stateInformation(leafState).getPathFromRoot match {
       case Some(x) => x(curLevel)
       case None => throw new CaissonCompilerException("Error constructing pathFromRoot information")
@@ -819,18 +815,3 @@ class CaissonCompilerException(msg: String) extends Exception {
 class ValidationException(msg: String) extends Exception {
   def message: String = msg
 }
-/*class VariableInformation(registerS: Set[String], inputS: Set[String], outputS: Set[String], wireS: Set[String], inoutS: Set[String], imemS: Set[String], dmemS: Set[String]) {
-  def registers = registerS
-
-  def inputs = inputS
-
-  def outputs = outputS
-
-  def wires = wireS
-
-  def inouts = inoutS
-
-  def imems = imemS
-
-  def dmems = dmemS
-}*/

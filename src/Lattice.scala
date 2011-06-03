@@ -32,7 +32,7 @@ class DirectedLatticeGraph {
 
   def isConnected(a: String, b: String): Boolean = if (a == b) true else connected(a, b, mutable.Set.empty[String]) //optimize this by using transitive closure?
 
-  private def connected(a: String, b: String, visited: mutable.Set[String]): Boolean = {
+  private def connected(a: String, b: String, visited: mutable.Set[String]): Boolean = { //if a is connected to b then a <= b
     if (visited.contains(a)) false
     else if (!edges.contains(a)) false
     else if(edges(a).contains(b)) true
@@ -42,6 +42,6 @@ class DirectedLatticeGraph {
     }
   }
 
-  def isConsistent: Boolean = !(isConnected("H", "L"))
+  def isConsistent: Boolean = !(isConnected("H", "L")) //TODO: make this more robust, and work for a more complicated Lattice
 
 }
