@@ -8,9 +8,9 @@ prog lease(timer,data1,data2,out1,out2) =
 in
 let state master:L() = {
     if timer>0 then {
-	local_timer := timer;
-	out1 := 0;
-	out2 := 0;
+	    local_timer := timer;
+    	out1 := 0;
+    	out2 := 0;
     	if mode==0 then {
        		mode := 1;
        		temp1 := 0;
@@ -25,18 +25,18 @@ let state master:L() = {
 	    goto master();
     }
 }
-state group:L(data:A,temp:A,out:A)[L<A] = {
-    let state S1:A() = {
+    state group:L(data:A,temp:A,out:A)[L<A] = {
+      let state S1:A() = {
         if data == 0 then { goto S2(); } 
-	else { temp := temp + 1; goto S1(); }
-    }
-    state S2:A() = {
-        if data == 0 then { goto S1(); } 
-	else { temp := temp + 2; goto S2(); }
-    }
+      	else { temp := temp + 1; goto S1(); }
+      }
+          state S2:A() = {
+            if data == 0 then { goto S1(); } 
+            else { temp := temp + 2; goto S2(); }
+       }
     in
-    	out := temp;
+    	  out := temp;
         if local_timer == 0 then { goto master(); } 
-	else { local_timer := local_timer - 1; fall; }
+      	else { local_timer := local_timer - 1; fall; }
 }
 in fall;
